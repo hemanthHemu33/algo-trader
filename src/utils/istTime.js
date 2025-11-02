@@ -1,40 +1,54 @@
-// India is UTC+05:30, no DST.
-// We'll do simple conversions off system time assuming server is also IST.
-// If you deploy on non-IST infra later, switch to luxon/dayjs-tz.
+// src/utils/istTime.js
+// NOTE: we assume server is running in IST (UTC+05:30).
+// If you deploy on non-IST infra later, replace these helpers
+// with a proper timezone library like dayjs-tz or luxon.
+
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
 
 export function nowIST() {
-  // Right now we'll assume server clock == IST. Keep it simple.
+  // simple for now: just new Date() and assume machine clock == IST
   return new Date();
 }
 
-// Format YYYY-MM-DD in IST, used as _id in daily_universe
+// "2025-11-02"
 export function getISTDateKey() {
   const d = nowIST();
   const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
+  const m = pad2(d.getMonth() + 1);
+  const day = pad2(d.getDate());
   return `${y}-${m}-${day}`;
 }
 
-// Compare current HH:MM (IST) with cutoff time string "15:00"
-export function isAfterTimeHHMM(targetHHMM) {
-  const now = nowIST();
-  const [hh, mm] = targetHHMM.split(":").map(Number);
-  const nowHH = now.getHours();
-  const nowMM = now.getMinutes();
-
-  if (nowHH > hh) return true;
-  if (nowHH < hh) return false;
-  return nowMM >= mm;
+// "HH:MM" in IST
+export function getISTClock() {
+  const d = nowIST();
+  const hh = pad2(d.getHours());
+  const mm = pad2(d.getMinutes());
+  return `${hh}:${mm}`;
 }
 
-export function isBeforeTimeHHMM(targetHHMM) {
-  const now = nowIST();
-  const [hh, mm] = targetHHMM.split(":").map(Number);
-  const nowHH = now.getHours();
-  const nowMM = now.getMinutes();
+// internal
+function parseHHMM(str) {
+  const [hh, mm] = str.split(":").map((x) => parseInt(x, 10));
+  return { hh, mm };
+}
 
-  if (nowHH < hh) return true;
-  if (nowHH > hh) return false;
-  return nowMM < mm;
+// true if current IST time >= target (e.g. "15:20")
+export function isAfterIST(targetHHMM) {
+  const now = nowIST();
+  const { hh, mm } = parseHHMM(targetHHMM);
+  if (now.getHours() > hh) return true;
+  if (now.getHours() < hh) return false;
+  return now.getMinutes() >= mm;
+}
+
+// true if current IST time <= target
+export function isBeforeIST(targetHHMM) {
+  const now = nowIST();
+  const { hh, mm } = parseHHMM(targetHHMM);
+  if (now.getHours() < hh) return true;
+  if (now.getHours() > hh) return false;
+  return now.getMinutes() <= mm;
 }

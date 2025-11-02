@@ -3,30 +3,24 @@ import { getISTDateKey } from "../utils/istTime.js";
 import { logger } from "../utils/logger.js";
 
 export function createPnlTracker() {
-  // We'll track realized P&L per trading day (IST-based)
+  // realized P&L for the active trading day
   let currentDayKey = getISTDateKey();
-  let realizedPnL = 0;
+  let realizedPnL = 0; // rupees
 
   function ensureDay() {
-    const todayKey = getISTDateKey();
-    if (todayKey !== currentDayKey) {
-      // new day -> reset
-      logger.info(
-        { prevDay: currentDayKey, newDay: todayKey },
-        "[pnlTracker] day rollover -> resetting P&L"
-      );
-      currentDayKey = todayKey;
+    const today = getISTDateKey();
+    if (today !== currentDayKey) {
+      currentDayKey = today;
       realizedPnL = 0;
     }
   }
 
-  // Call this whenever we fully close a position and lock in profit/loss
-  function addRealizedPnL(amountRs) {
+  function addRealizedPnL(deltaRs) {
     ensureDay();
-    realizedPnL += amountRs;
-    logger.info(
-      { realizedPnL, delta: amountRs },
-      "[pnlTracker] updated realized P&L"
+    realizedPnL += deltaRs;
+    logger.debug(
+      { day: currentDayKey, realizedPnL },
+      "[pnlTracker] updated realized PnL"
     );
   }
 
@@ -36,6 +30,7 @@ export function createPnlTracker() {
   }
 
   function getDayKey() {
+    ensureDay();
     return currentDayKey;
   }
 

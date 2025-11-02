@@ -1,7 +1,8 @@
+// src/data/candleStore.js
 import { logger } from "../utils/logger.js";
 
 /**
- * candle object we expect:
+ * candle shape:
  * {
  *   ts: Date,
  *   open: number,
@@ -12,46 +13,80 @@ import { logger } from "../utils/logger.js";
  * }
  */
 
-export function createCandleStore(symbolList) {
-  // candles[symbol] = [ ..., {ts,open,high,low,close,volume} ]
-  const candles = {};
-  for (const s of symbolList) {
-    candles[s] = [];
-  }
-
-  // subscribers called when we finalize a 1m candle close
+export function createCandleStore(symbolList = []) {
+  // candlesBySymbol[symbol] = [candle, candle, ...] oldest -> newest
+  const candlesBySymbol = {};
   const onCloseSubscribers = [];
 
-  function addHistoricalCandles(symbol, candleArray) {
-    if (!candles[symbol]) candles[symbol] = [];
-    // push older candles first, then newer
-    for (const c of candleArray) {
-      candles[symbol].push(c);
-    }
+  // init arrays
+  for (const sym of symbolList) {
+    candlesBySymbol[sym] = [];
   }
 
-  function addClosedCandle(symbol, candle) {
-    if (!candles[symbol]) candles[symbol] = [];
-    candles[symbol].push(candle);
+  function ensure(sym) {
+    if (!candlesBySymbol[sym]) {
+      candlesBySymbol[sym] = [];
+    }
+    return candlesBySymbol[sym];
+  }
 
-    // notify listeners that a new completed candle is available
-    for (const fn of onCloseSubscribers) {
-      try {
-        fn(symbol, candle, [...candles[symbol]]);
-      } catch (err) {
-        logger.error({ err }, "[candleStore] onCloseSubscriber crashed");
+  /**
+   * Seed historical candles (from preloadSession)
+   */
+  function addHistoricalCandles(symbol, arr) {
+    const bucket = ensure(symbol);
+    if (Array.isArray(arr) && arr.length) {
+      for (const c of arr) {
+        bucket.push(c);
       }
     }
   }
 
-  function getRecentCandles(symbol, lookback = 60) {
-    const arr = candles[symbol] || [];
-    if (arr.length <= lookback) return [...arr];
-    return arr.slice(arr.length - lookback);
+  /**
+   * Push a newly CLOSED 1m candle.
+   * After pushing, notify subscribers.
+   */
+  function addClosedCandle(symbol, candle) {
+    const bucket = ensure(symbol);
+    bucket.push(candle);
+
+    const snapshot = bucket.slice(); // oldest -> newest
+    for (const cb of onCloseSubscribers) {
+      try {
+        cb({
+          symbol,
+          candle,
+          series: snapshot,
+        });
+      } catch (err) {
+        logger.warn(
+          { symbol, err: err.message },
+          "[candleStore] onClose subscriber error"
+        );
+      }
+    }
   }
 
-  function onCandleClose(callbackFn) {
-    onCloseSubscribers.push(callbackFn);
+  /**
+   * getRecentCandles(symbol, lookback = 50)
+   * returns last N candles oldest -> newest
+   */
+  function getRecentCandles(symbol, lookback = 50) {
+    const bucket = ensure(symbol);
+    if (bucket.length <= lookback) {
+      return bucket.slice();
+    }
+    return bucket.slice(bucket.length - lookback);
+  }
+
+  /**
+   * Register a subscriber that runs whenever a candle closes.
+   * cb({ symbol, candle, series })
+   */
+  function onCandleClose(cb) {
+    if (typeof cb === "function") {
+      onCloseSubscribers.push(cb);
+    }
   }
 
   return {

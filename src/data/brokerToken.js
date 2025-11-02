@@ -3,40 +3,28 @@ import { getDb } from "./db.js";
 import { logger } from "../utils/logger.js";
 import { ENV } from "../config/env.js";
 
-// in-memory cache so we don't keep hitting Mongo
+// cache in memory for this process
 let _cachedAuth = null;
 
-/**
- * Load the latest Zerodha auth-like doc from the `tokens` collection.
- * We are NOT going to be picky about broker/type now because
- * your live DB might not match the filter exactly.
- *
- * We'll just:
- *   - sort by login_time desc (newest first)
- *   - fallback sort by _id desc
- *   - take the first doc
- */
-async function loadTokenDocFromMongo() {
+// grab newest token doc (you usually only keep one anyway)
+async function loadLatestTokenDocFromMongo() {
   const db = getDb();
 
-  const docs = await db.collection("tokens").find({}).toArray();
+  // If there's exactly one doc in "tokens", this will just return it.
+  // If there are multiple, we prefer the most recent login_time.
+  const cursor = db
+    .collection("tokens")
+    .find({})
+    .sort({ login_time: -1, _id: -1 })
+    .limit(1);
 
-  const latest = docs;
-
-  if (!latest) {
-    // Nothing in tokens at all. We won't throw here;
-    // we let caller handle missing auth gracefully.
-    logger.warn("[brokerToken] tokens collection is empty");
-    return null;
-  }
-
-  return latest;
+  const latest = await cursor.next();
+  return latest || null;
 }
 
 /**
  * getZerodhaAuth()
- *
- * Returns an object like:
+ * returns:
  * {
  *   apiKey,
  *   accessToken,
@@ -45,21 +33,14 @@ async function loadTokenDocFromMongo() {
  *   userId,
  *   loginTime
  * }
- *
- * If we can't build a valid auth (e.g. no access_token in DB),
- * we'll still return an object but accessToken might be null.
- * That lets the app boot and expose /api/status/health
- * instead of crashing at startup.
  */
-export async function getZerodhaAuth() {
-  // Serve cached immediately if we already loaded once.
-  if (_cachedAuth) {
+export async function getZerodhaAuth({ forceRefresh = false } = {}) {
+  if (!forceRefresh && _cachedAuth) {
     return _cachedAuth;
   }
 
-  const latest = await loadTokenDocFromMongo();
+  const latest = await loadLatestTokenDocFromMongo();
 
-  // If nothing found, build a "blank" auth so app can still run.
   if (!latest) {
     _cachedAuth = {
       apiKey: ENV.ZERODHA_API_KEY || null,
@@ -77,13 +58,9 @@ export async function getZerodhaAuth() {
     return _cachedAuth;
   }
 
-  // Build runtime auth object from doc
-  const apiKey = latest.api_key || ENV.ZERODHA_API_KEY || null;
-  const accessToken = latest.access_token || null;
-
   _cachedAuth = {
-    apiKey,
-    accessToken,
+    apiKey: latest.api_key || ENV.ZERODHA_API_KEY || null,
+    accessToken: latest.access_token || null,
     encToken: latest.enctoken || null,
     publicToken: latest.public_token || null,
     userId: latest.user_id || null,

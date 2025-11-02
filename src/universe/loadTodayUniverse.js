@@ -1,29 +1,22 @@
+// src/universe/loadTodayUniverse.js
 import { getDb } from "../data/db.js";
 import { logger } from "../utils/logger.js";
 
 /**
- * loadTodayUniverse()
- *
- * We pull the latest preferred trading symbols from `top_stock_symbols`.
- * This collection (in your design) holds ONE doc that looks like:
- *
+ * Load today's trading universe.
+ * We read the single most recent doc from `top_stock_symbols`
+ * which looks like:
  * {
  *   _id: "2025-10-31:preopen",
- *   createdAtIST: "2025-10-31T10:08:38.807+05:30",
+ *   createdAtIST: "...",
  *   symbols: ["NSE:UNIONBANK", "NSE:CANBK", ...]
  * }
- *
- * We'll:
- *  - read that doc
- *  - take its `symbols`
- *  - keep first ~5 for focused intraday trading
- *  - return []
- *    if not present (so startup can fallback to RELIANCE/TCS/etc.)
  */
 export async function loadTodayUniverse() {
   const db = getDb();
 
-  // just grab the single doc
+  // In your DB design you basically keep ONE doc.
+  // We'll just grab any doc (or latest if there are many).
   const latest = await db.collection("top_stock_symbols").findOne({});
 
   if (!latest) {
@@ -41,7 +34,7 @@ export async function loadTodayUniverse() {
     return [];
   }
 
-  // de-dupe (just in case) & trim
+  // de-dupe preserve order
   const uniqueSymbols = [...new Set(rawSymbols)];
   const universeSymbols = uniqueSymbols;
 

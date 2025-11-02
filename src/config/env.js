@@ -1,6 +1,7 @@
+// src/config/env.js
 import dotenv from "dotenv";
 
-dotenv.config(); // loads .env if present
+dotenv.config(); // load .env if present
 
 function requireEnv(name, fallback = undefined) {
   const v = process.env[name] ?? fallback;
@@ -13,16 +14,13 @@ function requireEnv(name, fallback = undefined) {
 export const ENV = {
   NODE_ENV: process.env.NODE_ENV || "development",
 
-  // Mongo is still required because we now depend on it
+  // we always connect to the same Mongo cluster as scanner_app
+  // example:
+  //   MONGO_URI=mongodb+srv://user:pass@cluster0.../scanner_app
   MONGO_URI: requireEnv("MONGO_URI"),
 
-  // Some brokers (like Zerodha) need api_key & access_token.
-  // We'll still expect API key in env unless you also store it in Mongo.
+  // Zerodha API key for your app; access_token comes from DB (`tokens` collection)
   ZERODHA_API_KEY: process.env.ZERODHA_API_KEY || null,
-
-  // DO NOT pull access token from env anymore.
-  // We'll load this dynamically from Mongo tokens collection.
-  // ZERODHA_ACCESS_TOKEN is intentionally NOT here.
 
   PORT: parseInt(process.env.PORT || "8080", 10),
 

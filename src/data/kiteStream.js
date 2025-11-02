@@ -1,24 +1,38 @@
 // src/data/kiteStream.js
 import { logger } from "../utils/logger.js";
+import { handleNewClosedCandle } from "../pipeline/onNewCandle.js";
 
 /**
- * In final version, this will:
- *  - Open Zerodha WebSocket using apiKey + accessToken
- *  - Subscribe to instrument tokens for provided universe symbols
- *  - Build live 1m candles
- *  - On candle close:
- *      candleStore.addClosedCandle(symbol, candle)
- *      -> trigger strategy/risk/execution pipeline
+ * startTickStream()
  *
- * For now, we just stub it so startup() doesn't crash.
+ * Eventually:
+ *  - connect Zerodha WebSocket using apiKey + accessToken
+ *  - subscribe to tokens for all symbols in `universe`
+ *  - build live 1m candles
+ *  - every time a 1m candle CLOSES:
+ *        candleStore.addClosedCandle(symbol, candle)
+ *
+ * For now:
+ *  - we only wire up the candleStore.onCandleClose() → pipeline
+ *  - we log current universe / PnL so startup() can show status
  */
-
 export async function startTickStream({
   universe,
   candleStore,
   positionTracker,
   pnlTracker,
 }) {
+  // whenever candleStore finalizes a candle, run the pipeline
+  candleStore.onCandleClose(async ({ symbol, candle, series }) => {
+    await handleNewClosedCandle({
+      symbol,
+      candle,
+      series,
+      positionTracker,
+      pnlTracker,
+    });
+  });
+
   logger.info(
     {
       universe,
@@ -28,10 +42,6 @@ export async function startTickStream({
     "[kiteStream] (stub) tick stream not yet connected"
   );
 
-  // IMPORTANT:
-  // We are *not* starting any intervals or loops here yet.
-  // Later we'll attach:
-  //  - WebSocket client
-  //  - candle assembly logic
-  //  - onCandleClose() subscription to run strategy
+  // NOTE: we are NOT starting any timers / websockets yet.
+  // safe for offline dev.
 }
