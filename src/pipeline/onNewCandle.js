@@ -1,7 +1,4 @@
 // src/pipeline/onNewCandle.js
-// This is the "brain": when a 1m candle closes, we run
-// features -> strategy -> risk -> orderExecutor.
-
 import { buildFeatureFrame } from "../features/buildFeatureFrame.js";
 import { detectLongSetup } from "../strategy/detectLongSetup.js";
 import { scoreSetup } from "../strategy/scoreSetup.js";
@@ -16,20 +13,20 @@ export async function handleNewClosedCandle({
   positionTracker,
   pnlTracker,
 }) {
-  // 1. compute indicators/features
+  // 1. build features (EMA, ATR, etc.)
   const features = buildFeatureFrame(series);
 
-  // 2. ask strategy if we want to go long now
+  // 2. ask strategy if we WANT to long now
   const setup = detectLongSetup({ symbol, candle, features });
   if (!setup || !setup.wantsLong) {
-    logger.debug({ symbol }, "[pipeline] no long setup / skipping");
+    logger.debug({ symbol }, "[pipeline] no long setup / skip");
     return;
   }
 
-  // 3. score the setup
+  // 3. score it
   const scored = scoreSetup(setup);
 
-  // 4. risk validation + position sizing
+  // 4. risk gating + sizing
   const check = finalRiskCheck({
     setup: scored,
     positionTracker,
@@ -44,11 +41,13 @@ export async function handleNewClosedCandle({
     return;
   }
 
+  // 5. APPROVED TRADE
   logger.info(
     { symbol, orderPlan: check.orderPlan },
     "[pipeline] APPROVED trade idea"
   );
 
-  // 5. submit (currently DRY RUN only)
+  // 6. send to executor (this will open position in memory;
+  //    for now it's DRY RUN broker)
   await orderExecutor.placeEntryOrder(check.orderPlan);
 }

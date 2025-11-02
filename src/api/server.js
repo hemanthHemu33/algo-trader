@@ -1,24 +1,21 @@
+// src/api/server.js
 import express from "express";
+import statusRoute from "./routes/statusRoute.js";
+import tradeRoutes from "./routes/tradeRoutes.js";
 import { ENV } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 
-export async function startApiServer(appState) {
+export function startApiServer() {
   const app = express();
   app.use(express.json());
 
-  // health
-  app.get("/api/status/health", (req, res) => {
-    return res.json({
-      ok: true,
-      service: "trader-core",
-      ts: Date.now(),
-      universe: appState.universe,
-      openPositions: appState.positionTracker.getOpenPositions(),
-      realizedPnL: appState.pnlTracker.getRealizedPnL(),
-    });
-  });
+  app.use("/api/status", statusRoute);
+  app.use("/api/trade", tradeRoutes);
+  // app.user("/health", statusRoute); // backward compatibility
 
   app.listen(ENV.PORT, () => {
     logger.info({ port: ENV.PORT }, "[api] listening");
   });
+
+  return app;
 }
