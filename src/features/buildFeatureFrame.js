@@ -1,36 +1,38 @@
 // src/features/buildFeatureFrame.js
-import { calcEMA, calcATR } from "./indicators.js";
-import { strategyConfig } from "../config/strategyConfig.js";
+import { ema, atr, sma } from "./indicators.js";
 
-/**
- * buildFeatureFrame(series)
- * series = array of candle objects oldest -> newest
- * candle = { ts, open, high, low, close, volume }
- */
-export function buildFeatureFrame(series) {
-  if (!Array.isArray(series) || series.length === 0) {
-    return {
-      lastClose: null,
-      lastHigh: null,
-      lastLow: null,
-      emaFast: null,
-      emaSlow: null,
-      atr: null,
-    };
-  }
+export function buildFeatureFrame(candles) {
+  // need at least ~30 candles
+  if (!candles || candles.length < 30) return null;
 
-  const last = series[series.length - 1];
+  const last = candles[candles.length - 1];
+  const prev = candles[candles.length - 2];
 
-  const emaFast = calcEMA(series, strategyConfig.EMA_FAST);
-  const emaSlow = calcEMA(series, strategyConfig.EMA_SLOW);
-  const atrVal = calcATR(series, strategyConfig.ATR_PERIOD);
+  // highs of last few candles (excluding current) for breakout check
+  const recentHighs = candles
+    .slice(candles.length - 5, candles.length - 1)
+    .map((c) => c.high);
+  const prevHigh = Math.max(...recentHighs);
+
+  const closes = candles.map((c) => c.close);
+  const vols = candles.map((c) => c.volume);
+
+  const emaFast = ema(closes.slice(-20), 9);
+  const emaSlow = ema(closes.slice(-30), 21);
+
+  const atr14 = atr(candles.slice(-20), 14);
+
+  const avgVol20 = sma(vols.slice(-20));
+  const volSpike = last.volume > avgVol20 * 1.5; // volume thrust
 
   return {
-    lastClose: last.close,
-    lastHigh: last.high,
-    lastLow: last.low,
+    last,
+    prev,
     emaFast,
     emaSlow,
-    atr: atrVal,
+    atr14,
+    prevHigh,
+    volSpike,
+    avgVol20,
   };
 }

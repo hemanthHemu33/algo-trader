@@ -1,95 +1,65 @@
 // src/execution/positionTracker.js
-import { logger } from "../utils/logger.js";
-import { getISTDateKey } from "../utils/istTime.js";
+import { riskConfig } from "../config/riskConfig.js";
 
-export function createPositionTracker() {
-  // list of currently open trades
-  const openPositions = [];
-  // archive of closed trades
-  const closedTrades = [];
-
-  function addOpenPosition(pos) {
-    // pos example:
-    // { symbol, side:"BUY"|"SELL", qty, avgPrice, stopLoss, target, openedAt:Date }
-    openPositions.push({
-      ...pos,
-      openedAt: pos.openedAt || new Date(),
-    });
-    logger.info(
-      { symbol: pos.symbol, qty: pos.qty, side: pos.side },
-      "[positionTracker] opened position"
-    );
-  }
-
-  function updateOpenPosition(symbol, patch) {
-    const idx = openPositions.findIndex((p) => p.symbol === symbol);
-    if (idx === -1) return;
-    openPositions[idx] = { ...openPositions[idx], ...patch };
-  }
-
-  /**
-   * closePosition
-   * removes position from openPositions, records it into closedTrades,
-   * returns { pnlRs, ... }
-   */
-  function closePosition({ symbol, exitPrice, reason = "" }) {
-    const idx = openPositions.findIndex((p) => p.symbol === symbol);
-    if (idx === -1) return null;
-
-    const pos = openPositions[idx];
-    openPositions.splice(idx, 1);
-
-    // PnL calc (BUY means profit if exitPrice > avgPrice)
-    let pnlRs = 0;
-    if (pos.side === "BUY") {
-      pnlRs = (exitPrice - pos.avgPrice) * pos.qty;
-    } else if (pos.side === "SELL") {
-      pnlRs = (pos.avgPrice - exitPrice) * pos.qty;
-    }
-
-    const record = {
-      ...pos,
-      exitPrice,
-      closedAt: new Date(),
-      dayKey: getISTDateKey(),
-      pnlRs,
-      reason,
-    };
-
-    closedTrades.push(record);
-
-    logger.info(
-      {
-        symbol: pos.symbol,
-        qty: pos.qty,
-        side: pos.side,
-        exitPrice,
-        pnlRs,
-      },
-      "[positionTracker] closed position"
-    );
-
-    return record;
-  }
+export function createPositionTracker({ pnlTracker }) {
+  const _positions = {}; // symbol -> { qty, entry, stopLoss, target, status }
 
   function getOpenPositions() {
-    return openPositions.slice();
+    return Object.keys(_positions).map((sym) => ({
+      symbol: sym,
+      ..._positions[sym],
+    }));
   }
 
-  function getClosedTrades() {
-    return closedTrades.slice();
+  function canOpenNewPosition() {
+    return getOpenPositions().length < riskConfig.MAX_CONCURRENT_TRADES;
   }
 
-  function getOpenCount() {
-    return openPositions.length;
+  function openNewPosition({
+    symbol,
+    qty,
+    entry,
+    stopLoss,
+    target,
+    brokerOrderId,
+  }) {
+    _positions[symbol] = {
+      qty,
+      entry,
+      stopLoss,
+      target,
+      brokerOrderId,
+      status: "OPEN",
+    };
+  }
+
+  function markClosed(symbol, exitPrice, reason) {
+    const pos = _positions[symbol];
+    if (!pos) return;
+
+    const pnlPerShare = exitPrice - pos.entry;
+    const gross = pnlPerShare * pos.qty;
+
+    pnlTracker.addRealizedPnL(gross, {
+      symbol,
+      entry: pos.entry,
+      exit: exitPrice,
+      qty: pos.qty,
+      reason,
+    });
+
+    delete _positions[symbol];
+  }
+
+  function getPosition(symbol) {
+    return _positions[symbol] || null;
   }
 
   return {
-    addOpenPosition,
-    updateOpenPosition,
-    closePosition,
     getOpenPositions,
-    getClosedTrades,
-    getOpenCount,
+    canOpenNewPosition,
+    openNewPosition,
+    markClosed,
+    getPosition,
   };
 }

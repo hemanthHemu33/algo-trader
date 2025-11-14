@@ -2,41 +2,31 @@
 import { getISTDateKey } from "../utils/istTime.js";
 import { logger } from "../utils/logger.js";
 
+// src/journal/pnlTracker.js
 export function createPnlTracker() {
-  // realized P&L for the active trading day
-  let currentDayKey = getISTDateKey();
-  let realizedPnL = 0; // rupees
+  let realized = 0;
+  const fills = [];
 
-  function ensureDay() {
-    const today = getISTDateKey();
-    if (today !== currentDayKey) {
-      currentDayKey = today;
-      realizedPnL = 0;
-    }
-  }
-
-  function addRealizedPnL(deltaRs) {
-    ensureDay();
-    realizedPnL += deltaRs;
-    logger.debug(
-      { day: currentDayKey, realizedPnL },
-      "[pnlTracker] updated realized PnL"
-    );
+  function addRealizedPnL(delta, meta) {
+    realized += delta;
+    fills.push({
+      ts: Date.now(),
+      ...meta,
+      delta,
+    });
   }
 
   function getRealizedPnL() {
-    ensureDay();
-    return realizedPnL;
+    return realized;
   }
 
-  function getDayKey() {
-    ensureDay();
-    return currentDayKey;
+  function getFills() {
+    return fills.slice();
   }
 
   return {
     addRealizedPnL,
     getRealizedPnL,
-    getDayKey,
+    getFills,
   };
 }

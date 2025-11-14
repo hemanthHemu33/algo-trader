@@ -1,73 +1,48 @@
 // src/risk/finalRiskCheck.js
 import { riskConfig } from "../config/riskConfig.js";
-import { dailyRiskGuard } from "./dailyRiskGuard.js";
-import { positionSizer } from "./positionSizer.js";
-import { validateRR } from "./validateRR.js";
-import { tradeWindowGuard } from "../strategy/tradeWindowGuard.js";
+import { canTakeNewTrade } from "./dailyRiskGuard.js";
+import { computePositionSize } from "./positionSizer.js";
+import { isBeforeTimeHHMM } from "../utils/istTime.js";
+import { ENV } from "../config/env.js";
 
-/**
- * finalRiskCheck({ setup, positionTracker, pnlTracker })
- * Decides if we're allowed to actually trade this setup.
- * Returns either { ok:false, reason } OR { ok:true, orderPlan }
- */
-export function finalRiskCheck({ setup, positionTracker, pnlTracker }) {
+export async function evaluateTradeRisk({
+  setup,
+  pnlTracker,
+  positionTracker,
+}) {
   if (!setup) {
     return { ok: false, reason: "no_setup" };
   }
 
-  const { entry, stopLoss, target } = setup;
-  if (
-    entry == null ||
-    stopLoss == null ||
-    target == null ||
-    !(stopLoss < entry)
-  ) {
-    return { ok: false, reason: "invalid_levels" };
+  // after cutoff? don't open fresh trades
+  if (!isBeforeTimeHHMM(ENV.ENTRY_CUTOFF_IST)) {
+    return { ok: false, reason: "after_entry_cutoff" };
   }
 
-  // 1) Time window guard (don't open too late)
-  const tw = tradeWindowGuard();
-  if (!tw.ok) {
-    return { ok: false, reason: tw.reason || "time_window_block" };
+  // RR check
+  const rr = (setup.target - setup.entry) / (setup.entry - setup.stopLoss);
+  if (rr < riskConfig.MIN_RR) {
+    return { ok: false, reason: "rr_below_min" };
   }
 
-  // 2) daily loss guard
-  const dr = dailyRiskGuard(pnlTracker);
-  if (!dr.ok) {
-    return { ok: false, reason: "daily_loss_cap" };
+  // daily loss / concurrency check
+  const guard = canTakeNewTrade({ pnlTracker, positionTracker });
+  if (!guard.ok) {
+    return { ok: false, reason: guard.reason };
   }
 
-  // 3) max concurrent trades guard
-  if (positionTracker.getOpenCount() >= riskConfig.MAX_CONCURRENT_TRADES) {
-    return { ok: false, reason: "max_concurrent_trades" };
+  // position sizing
+  const sizeInfo = await computePositionSize({
+    entry: setup.entry,
+    stopLoss: setup.stopLoss,
+  });
+
+  if (!sizeInfo.qty || sizeInfo.qty <= 0) {
+    return { ok: false, reason: sizeInfo.reason || "position_sizing_failed" };
   }
 
-  // 4) RR check
-  const rrCheck = validateRR(entry, stopLoss, target);
-  if (!rrCheck.ok) {
-    return { ok: false, reason: "rr_too_low", rr: rrCheck.rr };
-  }
-
-  // 5) position sizing
-  const riskPerShare = entry - stopLoss;
-  const qty = positionSizer(riskPerShare);
-  if (qty <= 0) {
-    return { ok: false, reason: "qty_zero" };
-  }
-
-  const orderPlan = {
-    symbol: setup.symbol,
-    side: "BUY",
-    qty,
-    entry,
-    stopLoss,
-    target,
-    meta: {
-      reason: setup.reason,
-      confidence: setup.confidence || 0,
-      rr: rrCheck.rr,
-    },
+  return {
+    ok: true,
+    qty: sizeInfo.qty,
   };
-
-  return { ok: true, orderPlan };
 }

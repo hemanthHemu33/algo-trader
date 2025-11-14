@@ -2,64 +2,55 @@
 import { logger } from "../utils/logger.js";
 
 /**
- * candle: { ts, open, high, low, close, volume }
- * We keep arrays per symbol, oldest -> newest.
+ * candle = {
+ *   ts: Date,
+ *   open: number,
+ *   high: number,
+ *   low: number,
+ *   close: number,
+ *   volume: number
+ * }
  */
-export function createCandleStore(symbolList = []) {
-  const candlesBySymbol = {};
-  const onCloseSubscribers = [];
 
-  for (const sym of symbolList) {
-    candlesBySymbol[sym] = [];
+export function createCandleStore(symbolList) {
+  const _candles = {}; // { [symbol]: [candle, candle, ...] }
+  const _subs = [];
+
+  for (const s of symbolList) {
+    _candles[s] = [];
   }
 
-  function ensure(sym) {
-    if (!candlesBySymbol[sym]) candlesBySymbol[sym] = [];
-    return candlesBySymbol[sym];
-  }
-
-  // preload historical candles from preloadSession()
   function addHistoricalCandles(symbol, arr) {
-    const bucket = ensure(symbol);
-    if (Array.isArray(arr) && arr.length) {
-      for (const c of arr) {
-        bucket.push(c);
-      }
-    }
+    if (!_candles[symbol]) _candles[symbol] = [];
+    _candles[symbol].push(...arr);
   }
 
-  // called when a 1-min candle is CLOSED
   function addClosedCandle(symbol, candle) {
-    const bucket = ensure(symbol);
-    bucket.push(candle);
+    if (!_candles[symbol]) _candles[symbol] = [];
+    _candles[symbol].push(candle);
 
-    const snapshot = bucket.slice(); // copy (oldest -> newest)
-    for (const cb of onCloseSubscribers) {
+    // notify pipeline
+    for (const fn of _subs) {
       try {
-        cb({
+        fn({
           symbol,
           candle,
-          series: snapshot,
+          candles: _candles[symbol],
         });
       } catch (err) {
-        logger.warn(
-          { symbol, err: err.message },
-          "[candleStore] onClose subscriber error"
-        );
+        logger.error(err, "[candleStore] subscriber error");
       }
     }
   }
 
   function getRecentCandles(symbol, lookback = 50) {
-    const bucket = ensure(symbol);
-    if (bucket.length <= lookback) return bucket.slice();
-    return bucket.slice(bucket.length - lookback);
+    const arr = _candles[symbol] || [];
+    if (arr.length <= lookback) return [...arr];
+    return arr.slice(arr.length - lookback);
   }
 
   function onCandleClose(cb) {
-    if (typeof cb === "function") {
-      onCloseSubscribers.push(cb);
-    }
+    _subs.push(cb);
   }
 
   return {

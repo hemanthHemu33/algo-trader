@@ -1,28 +1,20 @@
 // src/data/marketClock.js
-import { timeConfig } from "../config/timeConfig.js";
-import { getISTClock } from "../utils/istTime.js";
-import { enforceKillSwitch } from "../execution/killSwitch.js";
+import { ENV } from "../config/env.js";
+import { isAfterTimeHHMM } from "../utils/istTime.js";
+import { flattenAllPositions } from "../execution/orderExecutor.js";
 import { logger } from "../utils/logger.js";
 
-/**
- * Repeatedly:
- * - enforce kill switch (daily loss cap)
- * - square off after FORCE_EXIT_IST
- */
-export function startMarketClock({ exitManager, pnlTracker }) {
-  setInterval(() => {
-    const nowHHMM = getISTClock();
-
-    // 1) daily kill switch
-    enforceKillSwitch(pnlTracker, exitManager);
-
-    // 2) force exit time (e.g. 15:20 IST)
-    if (nowHHMM >= timeConfig.FORCE_EXIT_IST) {
-      logger.info(
-        { now: nowHHMM, cutoff: timeConfig.FORCE_EXIT_IST },
-        "[marketClock] FORCE_EXIT_IST reached, flattening"
-      );
-      exitManager.closeAllPositions("FORCE_EXIT_TIME");
+export function startMarketClock({ positionTracker }) {
+  const timer = setInterval(async () => {
+    // hard square-off rule
+    if (
+      isAfterTimeHHMM(ENV.FORCE_EXIT_IST) &&
+      positionTracker.getOpenPositions().length > 0
+    ) {
+      logger.info("[marketClock] FORCE_EXIT_IST reached. Squaring off all.");
+      await flattenAllPositions(positionTracker);
     }
-  }, 5000);
+  }, 10_000); // check every 10s
+
+  return timer;
 }

@@ -1,92 +1,121 @@
-// src/broker/kiteStream.js
+// src/data/kiteStream.js
 import { KiteTicker } from "kiteconnect";
+import { getZerodhaAuth } from "./brokerToken.js";
+import { buildTokenMaps } from "./tokenMap.js";
+import { nowIST } from "../utils/istTime.js";
 import { logger } from "../utils/logger.js";
-import { getZerodhaAuth } from "../data/brokerToken.js";
-import { processTicks } from "../market/tickProcessor.js";
-import { runStrategyOnNewCandle } from "../strategy/runner.js"; // we'll define next
 
-let _ticker = null;
-
-/**
- * startTickStream()
- *
- * @param {Object} params
- *  - tokens: number[] instrument tokens (e.g. [738561, 256265])
- *  - tokenToSymbol: { "738561": "NSE:RELIANCE", ... }
- *
- * After connect:
- *   - subscribes to tokens
- *   - sets mode to FULL (so we get last_price, volume, timestamp, depth, etc.)
- *   - on each batch of ticks: aggregate to candles
- */
-export async function startTickStream({ tokens, tokenToSymbol }) {
-  if (_ticker) {
-    logger.warn("[kiteStream] already running");
-    return _ticker;
+export async function startTickStream({
+  universe,
+  candleStore,
+  positionTracker,
+  pnlTracker,
+}) {
+  const auth = await getZerodhaAuth();
+  if (!auth.apiKey || !auth.accessToken) {
+    logger.error("[kiteStream] no apiKey/accessToken -> can't start live feed");
+    return;
   }
 
-  const auth = await getZerodhaAuth();
+  // Build symbol <-> token maps from DB
+  const { symbolToToken, tokenToSymbol } = await buildTokenMaps(universe);
+  const tokens = Object.values(symbolToToken)
+    .map((t) => Number(t))
+    .filter(Boolean);
 
-  if (!auth.apiKey || !auth.accessToken) {
+  if (!tokens.length) {
     logger.error(
-      {
-        hasApiKey: !!auth.apiKey,
-        hasAccessToken: !!auth.accessToken,
-      },
-      "[kiteStream] missing Zerodha creds. Can't start live stream."
+      { universe },
+      "[kiteStream] no instrument tokens to subscribe"
     );
-    return null;
+    return;
   }
 
   const ticker = new KiteTicker({
     api_key: auth.apiKey,
     access_token: auth.accessToken,
   });
-  _ticker = ticker;
 
-  // optional auto-reconnect so it survives blips. Zerodha supports this. :contentReference[oaicite:6]{index=6}
-  ticker.autoReconnect(true, -1, 5);
+  // Per-token rolling candle bucket
+  // buckets[token] = {
+  //   minuteKey: <epoch ms aligned to minute>,
+  //   open, high, low, close,
+  //   lastVolume, volumeDelta
+  // }
+  const buckets = {};
 
-  ticker.on("connect", () => {
-    try {
-      logger.info({ tokens }, "[kiteStream] connected, subscribing");
-      ticker.subscribe(tokens);
-    } catch (err) {
-      logger.error({ err }, "[kiteStream] subscribe error");
-    }
+  function finalizeBucket(token) {
+    const b = buckets[token];
+    if (!b) return;
+    const symbol = tokenToSymbol[token];
+    if (!symbol) return;
 
-    // FULL mode = best data (LTP, volume, ohlc, depth, timestamp).
-    // This is what we want for candle building and later maybe order book logic. :contentReference[oaicite:7]{index=7}
-    try {
-      ticker.setMode(ticker.modeFull, tokens);
-    } catch (err) {
-      logger.error({ err }, "[kiteStream] setMode error");
-    }
-  });
+    candleStore.addClosedCandle(symbol, {
+      ts: new Date(b.minuteKey),
+      open: b.open,
+      high: b.high,
+      low: b.low,
+      close: b.close,
+      volume: b.volumeDelta,
+    });
+  }
 
   ticker.on("ticks", (ticks) => {
-    // 1) update rolling candles
-    processTicks(ticks, tokenToSymbol, (symbol, candle) => {
-      // 2) when a 1-min candle closes -> run strategy
-      runStrategyOnNewCandle(symbol, candle);
-    });
+    const now = nowIST();
+
+    for (const t of ticks) {
+      const token = t.instrument_token;
+      const symbol = tokenToSymbol[token];
+      if (!symbol) continue;
+
+      const ltp = t.last_price; // last traded price
+      const totalVol = t.volume || 0; // Zerodha tick has total traded volume so far today. :contentReference[oaicite:7]{index=7}
+
+      // minuteKey = this minute rounded down
+      const minute = new Date(now);
+      minute.setSeconds(0, 0);
+      const minuteKey = minute.getTime();
+
+      let b = buckets[token];
+
+      // minute changed? flush previous candle
+      if (!b || b.minuteKey !== minuteKey) {
+        if (b) {
+          finalizeBucket(token);
+        }
+        b = {
+          minuteKey,
+          open: ltp,
+          high: ltp,
+          low: ltp,
+          close: ltp,
+          lastVolume: totalVol,
+          volumeDelta: 0,
+        };
+        buckets[token] = b;
+      }
+
+      // update ongoing bucket
+      b.close = ltp;
+      if (ltp > b.high) b.high = ltp;
+      if (ltp < b.low) b.low = ltp;
+
+      // volumeDelta = today's cumulative volume diff
+      if (totalVol > b.lastVolume) {
+        b.volumeDelta += totalVol - b.lastVolume;
+      }
+      b.lastVolume = totalVol;
+    }
   });
 
-  ticker.on("order_update", (order) => {
-    // broker sends order status updates here in real-time. :contentReference[oaicite:8]{index=8}
-    logger.info(
-      { order },
-      "[kiteStream] order_update (broker says order status changed)"
-    );
-    // Here you can sync your openPositions, realizedPnL, etc.
+  ticker.on("connect", () => {
+    logger.info({ tokens }, "[kiteStream] connected. subscribing tokens");
+    ticker.subscribe(tokens);
+    ticker.setMode(ticker.modeFull, tokens); // full mode gives volume, ohlc etc. :contentReference[oaicite:8]{index=8}
   });
 
   ticker.on("error", (err) => {
-    logger.error({ err }, "[kiteStream] WS error");
-  });
-
-  ticker.on("disconnect", (err) => {
-    logger.warn({ err }, "[kiteStream] disconnected");
+    logger.error(err, "[kiteStream] error");
   });
 
   ticker.on("close", (reason) => {
@@ -95,6 +124,12 @@ export async function startTickStream({ tokens, tokenToSymbol }) {
 
   ticker.connect();
 
-  logger.info("[kiteStream] connecting to Zerodha ticker WS...");
-  return ticker;
+  logger.info(
+    {
+      universe,
+      openPositions: positionTracker.getOpenPositions(),
+      realizedPnL: pnlTracker.getRealizedPnL(),
+    },
+    "[kiteStream] live tick stream started"
+  );
 }

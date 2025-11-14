@@ -1,57 +1,49 @@
 // src/bootstrap/startup.js
-import { logger } from "../utils/logger.js";
 import { connectDb } from "../data/db.js";
 import { getZerodhaAuth } from "../data/brokerToken.js";
 import { loadTodayUniverse } from "../universe/loadTodayUniverse.js";
-import { loadInstrumentMapForUniverse } from "../data/instruments.js";
-import { startTickStream } from "../broker/kiteStream.js";
-import { initKiteREST } from "../exec/kiteREST.js";
+import { validateUniverse } from "../universe/validateUniverse.js";
+import { createCandleStore } from "../data/candleStore.js";
+import { preloadSession } from "../data/preloadSession.js";
+import { startTickStream } from "../data/kiteStream.js";
+import { createPositionTracker } from "../execution/positionTracker.js";
+import { createPnlTracker } from "../journal/pnlTracker.js";
+import { hookPipeline } from "../pipeline/runPipeline.js";
+import { startMarketClock } from "../data/marketClock.js";
+import { logger } from "../utils/logger.js";
 
 export async function startup() {
-  // 1) DB
-  await connectDb(); // make sure db connection + indexes are up
+  await connectDb();
 
-  // 2) Broker auth (from tokens collection)
-  const auth = await getZerodhaAuth();
-  logger.info(
-    {
-      user: auth.userId,
-      hasAccessToken: !!auth.accessToken,
-      hasApiKey: !!auth.apiKey,
-    },
-    "[startup] zerodha auth ok"
-  );
+  // Ensure Zerodha auth exists
+  const auth = await getZerodhaAuth({ forceRefresh: true });
+  if (!auth.accessToken || !auth.apiKey) {
+    throw new Error(
+      "[startup] No Zerodha auth in DB. Login to Kite and store token first."
+    );
+  }
 
-  // 3) Today's trade universe (top_stock_symbols)
-  const universeSymbols = await loadTodayUniverse();
-  logger.info({ universeSymbols }, "[startup] loaded today's trade universe");
+  // Build today's universe FIRST (so 'universe' is defined)
+  const rawUniverse = await loadTodayUniverse();
+  const universe = validateUniverse(rawUniverse);
 
-  // 4) Instrument tokens for that universe
-  const { symbolToToken, tokenToSymbol, tokens } =
-    await loadInstrumentMapForUniverse(universeSymbols);
+  // Candle storage + optional historical preload
+  const candleStore = createCandleStore(universe);
+  await preloadSession({ universe, candleStore });
 
-  // 5) Kick off live ticker stream (this starts pushing ticks -> candles -> strategy)
-  await startTickStream({
-    tokens,
-    tokenToSymbol,
-  });
+  // PnL + positions
+  const pnlTracker = createPnlTracker();
+  const positionTracker = createPositionTracker({ pnlTracker });
 
-  // 6) Init REST client for live order placement
-  await initKiteREST();
+  // Strategy pipeline listens to candle close events
+  hookPipeline({ candleStore, pnlTracker, positionTracker });
 
-  logger.info(
-    {
-      watchlistCount: universeSymbols.length,
-      tokensCount: tokens.length,
-    },
-    "[startup] service initialized and live feed started"
-  );
+  // Force square-off near close
+  startMarketClock({ positionTracker });
 
-  // You can also return handles if main.js wants them
-  return {
-    universeSymbols,
-    symbolToToken,
-    tokenToSymbol,
-    tokens,
-  };
+  // Start Zerodha live ticks -> candles -> strategy
+  await startTickStream({ universe, candleStore, positionTracker, pnlTracker });
+
+  logger.info({ count: universe.length }, "[startup] service initialized");
+  return { universe, candleStore, positionTracker, pnlTracker };
 }

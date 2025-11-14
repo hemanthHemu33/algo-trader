@@ -1,20 +1,19 @@
 // src/risk/dailyRiskGuard.js
 import { riskConfig } from "../config/riskConfig.js";
 
-/**
- * Checks if we're already down more than MAX_DAILY_LOSS_RS.
- * Returns { ok, realized, maxLoss, remainingLossCapacity }
- */
-export function dailyRiskGuard(pnlTracker) {
-  const realized = pnlTracker.getRealizedPnL(); // +profit / -loss
-  const maxLoss = riskConfig.MAX_DAILY_LOSS_RS;
+export function canTakeNewTrade({ pnlTracker, positionTracker }) {
+  // daily loss cap
+  if (pnlTracker.getRealizedPnL() <= -riskConfig.MAX_DAILY_LOSS_RS) {
+    return { ok: false, reason: "max_daily_loss_hit" };
+  }
 
-  const ok = realized >= -1 * maxLoss;
+  // concurrent trades cap
+  if (
+    positionTracker.getOpenPositions().length >=
+    riskConfig.MAX_CONCURRENT_TRADES
+  ) {
+    return { ok: false, reason: "too_many_open_positions" };
+  }
 
-  return {
-    ok,
-    realized,
-    maxLoss,
-    remainingLossCapacity: ok ? -maxLoss - realized : 0,
-  };
+  return { ok: true };
 }

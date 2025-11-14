@@ -1,47 +1,35 @@
 // src/features/indicators.js
 
-// Exponential Moving Average of closing prices
-export function calcEMA(series, period) {
-  // series is array of candles oldest -> newest
-  // each candle: { close }
-  if (!Array.isArray(series) || series.length === 0) return null;
+export function ema(values, period) {
+  if (!values.length || values.length < period) return null;
   const k = 2 / (period + 1);
-  let emaPrev = null;
-
-  for (const candle of series) {
-    const price = candle.close;
-    if (price == null) continue;
-
-    if (emaPrev == null) {
-      emaPrev = price;
-    } else {
-      emaPrev = price * k + emaPrev * (1 - k);
-    }
+  let emaVal = values[0];
+  for (let i = 1; i < values.length; i++) {
+    emaVal = values[i] * k + emaVal * (1 - k);
   }
-
-  return emaPrev;
+  return emaVal;
 }
 
-// Average True Range
-export function calcATR(series, period) {
-  // series oldest -> newest
-  if (!Array.isArray(series) || series.length < period + 1) {
-    return null;
-  }
+export function sma(values) {
+  if (!values.length) return null;
+  const sum = values.reduce((a, b) => a + b, 0);
+  return sum / values.length;
+}
 
+// ATR: average true range over N periods.
+// We'll approximate using candles [{high,low,close}] with last close prevCandle.close
+export function atr(candles, period = 14) {
+  if (candles.length < period + 1) return null;
   const trs = [];
-  for (let i = 1; i < series.length; i++) {
-    const curr = series[i];
-    const prev = series[i - 1];
-    const highLow = curr.high - curr.low;
-    const highPrevClose = Math.abs(curr.high - prev.close);
-    const lowPrevClose = Math.abs(curr.low - prev.close);
-    const tr = Math.max(highLow, highPrevClose, lowPrevClose);
+  for (let i = candles.length - period; i < candles.length; i++) {
+    const c = candles[i];
+    const prev = candles[i - 1];
+    const tr = Math.max(
+      c.high - c.low,
+      Math.abs(c.high - prev.close),
+      Math.abs(c.low - prev.close)
+    );
     trs.push(tr);
   }
-
-  // simple SMA of last `period` TR values
-  const lastTR = trs.slice(-period);
-  const sum = lastTR.reduce((a, b) => a + b, 0);
-  return sum / lastTR.length;
+  return sma(trs);
 }
