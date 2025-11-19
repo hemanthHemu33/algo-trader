@@ -32,6 +32,38 @@ export const ENV = {
   ),
   MAX_CONCURRENT_TRADES: parseInt(process.env.MAX_CONCURRENT_TRADES || "1", 10),
 
+  // trading costs + sizing safety margins
+  ENTRY_SLIPPAGE_PCT: parseFloat(process.env.ENTRY_SLIPPAGE_PCT || "0.001"),
+  EXIT_SLIPPAGE_PCT: parseFloat(process.env.EXIT_SLIPPAGE_PCT || "0.001"),
+  ROUND_TRIP_CHARGES_PCT: parseFloat(
+    process.env.ROUND_TRIP_CHARGES_PCT || "0.0009"
+  ),
+  BROKERAGE_PER_ORDER_RS: parseFloat(
+    process.env.BROKERAGE_PER_ORDER_RS || "20"
+  ),
+
+  // lot sizes + caps
+  DEFAULT_LOT_SIZE: parseInt(process.env.DEFAULT_LOT_SIZE || "1", 10),
+  DEFAULT_MAX_ORDER_QTY: parseInt(
+    process.env.DEFAULT_MAX_ORDER_QTY || "2000",
+    10
+  ),
+  NSE_EQUITY_LOT_SIZE: parseInt(process.env.NSE_EQUITY_LOT_SIZE || "1", 10),
+  NSE_EQUITY_MAX_ORDER_QTY: parseInt(
+    process.env.NSE_EQUITY_MAX_ORDER_QTY || "2000",
+    10
+  ),
+
+  // margin guardrail settings
+  MARGIN_FAILURE_THRESHOLD: parseInt(
+    process.env.MARGIN_FAILURE_THRESHOLD || "3",
+    10
+  ),
+  MARGIN_CIRCUIT_COOLDOWN_MS: parseInt(
+    process.env.MARGIN_CIRCUIT_COOLDOWN_MS || "60000",
+    10
+  ),
+
   ENTRY_CUTOFF_IST: process.env.ENTRY_CUTOFF_IST || "15:00",
   FORCE_EXIT_IST: process.env.FORCE_EXIT_IST || "15:20",
   MARKET_OPEN_IST: process.env.MARKET_OPEN_IST || "09:15",

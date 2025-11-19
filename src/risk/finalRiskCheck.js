@@ -33,6 +33,7 @@ export async function evaluateTradeRisk({
 
   // position sizing
   const sizeInfo = await computePositionSize({
+    symbol: setup.symbol,
     entry: setup.entry,
     stopLoss: setup.stopLoss,
   });
