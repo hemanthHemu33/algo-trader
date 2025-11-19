@@ -1,23 +1,34 @@
 // src/data/kiteREST.js
 import { KiteConnect } from "kiteconnect";
-import { getZerodhaAuth } from "./brokerToken.js";
 import { logger } from "../utils/logger.js";
+import { ensureKiteSession, refreshKiteSession } from "./kiteSession.js";
 
 let _kc = null;
+let _kcAccessToken = null;
 
 // lazy init the Kite client
 export async function getKiteClient() {
-  if (_kc) return _kc;
+  const auth = await ensureKiteSession();
 
-  const auth = await getZerodhaAuth();
-  if (!auth.apiKey || !auth.accessToken) {
-    throw new Error("[kiteREST] missing apiKey or accessToken");
-  }
+  if (_kc && _kcAccessToken === auth.accessToken) return _kc;
 
   const kc = new KiteConnect({ api_key: auth.apiKey });
   kc.setAccessToken(auth.accessToken);
+  kc.setSessionExpiryHook(async () => {
+    logger.warn("[kiteREST] session expired. attempting refresh");
+    try {
+      await refreshKiteSession();
+      _kc = null;
+      _kcAccessToken = null;
+      await getKiteClient();
+      logger.info("[kiteREST] session refreshed after expiry");
+    } catch (err) {
+      logger.error({ err: err.message }, "[kiteREST] failed to refresh session");
+    }
+  });
 
   _kc = kc;
+  _kcAccessToken = auth.accessToken;
   return _kc;
 }
 

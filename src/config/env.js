@@ -21,6 +21,7 @@ export const ENV = {
 
   // Zerodha API key for your app; access_token comes from DB (`tokens` collection)
   ZERODHA_API_KEY: process.env.ZERODHA_API_KEY || null,
+  ZERODHA_API_SECRET: process.env.ZERODHA_API_SECRET || null,
 
   PORT: parseInt(process.env.PORT || "8080", 10),
 

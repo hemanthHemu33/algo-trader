@@ -11,7 +11,7 @@ export function startApiServer() {
 
   app.use("/api/status", statusRoute);
   app.use("/api/trade", tradeRoutes);
-  // app.user("/health", statusRoute); // backward compatibility
+  app.use("/health", statusRoute); // backward compatibility
 
   app.listen(ENV.PORT, () => {
     logger.info({ port: ENV.PORT }, "[api] listening");
