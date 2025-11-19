@@ -1,4 +1,5 @@
 // src/execution/orderExecutor.js
+import { riskConfig } from "../config/riskConfig.js";
 import { placeMISBuy, placeMISSell } from "../data/kiteREST.js";
 import { logger } from "../utils/logger.js";
 import { pollOrderUntilTerminal } from "./orderPolling.js";
@@ -6,6 +7,8 @@ import {
   cancelProtectiveOrders,
   placeProtectiveBracket,
 } from "./protectiveOrders.js";
+import { getSpendableMargin } from "../data/marginService.js";
+import { estimateEntryRequirement } from "../risk/tradeCosting.js";
 
 /**
  * placeLongTrade()
@@ -19,6 +22,32 @@ export async function placeLongTrade({
   stopLoss,
   target,
 }) {
+  const margin = await getSpendableMargin();
+  if (!margin.ok) {
+    logger.error(
+      { symbol, reason: margin.reason },
+      "[orderExecutor] margin unavailable before entry"
+    );
+    return { status: "FAILED", brokerOrderId: null, reason: margin.reason };
+  }
+
+  const spendableCash = margin.available * riskConfig.CASH_UTILISATION_PCT;
+  const requirement = estimateEntryRequirement({ qty, entry });
+
+  if (requirement.total > spendableCash) {
+    logger.error(
+      {
+        symbol,
+        qty,
+        entry,
+        required: requirement.total,
+        spendable: spendableCash,
+      },
+      "[orderExecutor] insufficient margin before sending entry"
+    );
+    return { status: "FAILED", brokerOrderId: null, reason: "insufficient_margin" };
+  }
+
   const { orderId } = await placeMISBuy({ symbol, qty });
 
   logger.info(

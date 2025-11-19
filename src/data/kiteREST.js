@@ -36,15 +36,23 @@ export async function getKiteClient() {
 export async function fetchAvailableEquityMargin() {
   const kc = await getKiteClient();
 
-  // kc.getMargins("equity") -> funds for equity segment
-  // Zerodha's margins API returns available cash, utilised, etc.,
-  // e.g. { available: { cash: 6466.8, live_balance: 6466.8 }, ... } for equity. :contentReference[oaicite:6]{index=6}
-  const m = await kc.getMargins("equity");
+  try {
+    // kc.getMargins("equity") -> funds for equity segment
+    // Zerodha's margins API returns available cash, utilised, etc.,
+    // e.g. { available: { cash: 6466.8, live_balance: 6466.8 }, ... } for equity. :contentReference[oaicite:6]{index=6}
+    const m = await kc.getMargins("equity");
 
-  const liveBalance =
-    m?.available?.live_balance ?? m?.available?.cash ?? m?.net ?? 0;
+    const liveBalance =
+      m?.available?.live_balance ?? m?.available?.cash ?? m?.net ?? 0;
 
-  return liveBalance;
+    return liveBalance;
+  } catch (err) {
+    logger.error(
+      { err: err?.message },
+      "[kiteREST] failed to fetch equity margin"
+    );
+    throw err;
+  }
 }
 
 // place market BUY MIS
