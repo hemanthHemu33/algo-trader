@@ -4,17 +4,23 @@ import { detectLongSetup } from "../strategy/detectLongSetup.js";
 import { scoreSetup } from "../strategy/scoreSetup.js";
 import { evaluateTradeRisk } from "../risk/finalRiskCheck.js";
 import { placeLongTrade } from "../execution/orderExecutor.js";
-import { maybeExitPositions } from "../execution/exitManager.js";
+import { monitorProtectiveOrders } from "../execution/protectiveOrders.js";
 import { logger } from "../utils/logger.js";
 
-export function hookPipeline({ candleStore, pnlTracker, positionTracker }) {
+export function hookPipeline({
+  candleStore,
+  pnlTracker,
+  positionTracker,
+  exitManager,
+}) {
   candleStore.onCandleClose(async ({ symbol, candle, candles }) => {
     // 1) Always check exits first (stoploss/target/force close per symbol)
-    await maybeExitPositions({
-      symbol,
-      lastCandle: candle,
-      positionTracker,
-    });
+    if (exitManager) {
+      await exitManager.maybeExitPositions({
+        symbol,
+        lastCandle: candle,
+      });
+    }
 
     // 2) If we already have an open position in this symbol, don't open another
     if (positionTracker.getPosition(symbol)) {
@@ -56,17 +62,32 @@ export function hookPipeline({ candleStore, pnlTracker, positionTracker }) {
       entry: setup.entry,
       stopLoss: setup.stopLoss,
       target: setup.target,
+      positionTracker,
     });
+
+    if (tradeInfo.status !== "FILLED") {
+      logger.warn({ symbol }, "[pipeline] entry did not fill, skipping track");
+      return;
+    }
 
     // 7) Track position
     positionTracker.openNewPosition({
       symbol,
-      qty,
+      qty: tradeInfo.filledQty ?? qty,
       entry: tradeInfo.avgPrice ?? setup.entry,
       stopLoss: setup.stopLoss,
       target: setup.target,
       brokerOrderId: tradeInfo.brokerOrderId,
+      protectiveOrders: tradeInfo.protectiveOrders,
     });
+
+    monitorProtectiveOrders({
+      symbol,
+      protectiveOrders: tradeInfo.protectiveOrders,
+      positionTracker,
+    }).catch((err) =>
+      logger.error({ err: err.message }, "[pipeline] protective watcher failed")
+    );
 
     logger.info(
       {

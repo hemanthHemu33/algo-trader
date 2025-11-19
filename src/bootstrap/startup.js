@@ -7,6 +7,7 @@ import { createCandleStore } from "../data/candleStore.js";
 import { preloadSession } from "../data/preloadSession.js";
 import { startTickStream } from "../data/kiteStream.js";
 import { createPositionTracker } from "../execution/positionTracker.js";
+import { createExitManager } from "../execution/exitManager.js";
 import { createPnlTracker } from "../journal/pnlTracker.js";
 import { hookPipeline } from "../pipeline/runPipeline.js";
 import { startMarketClock } from "../data/marketClock.js";
@@ -45,16 +46,22 @@ export async function startup() {
   // PnL + positions
   const pnlTracker = createPnlTracker();
   const positionTracker = createPositionTracker({ pnlTracker });
+  const exitManager = createExitManager({ positionTracker });
 
   // Strategy pipeline listens to candle close events
-  hookPipeline({ candleStore, pnlTracker, positionTracker });
+  hookPipeline({ candleStore, pnlTracker, positionTracker, exitManager });
 
   // Force square-off near close
   startMarketClock({ positionTracker });
 
   // Start Zerodha live ticks -> candles -> strategy
-  await startTickStream({ universe, candleStore, positionTracker, pnlTracker });
+  await startTickStream({
+    universe,
+    candleStore,
+    positionTracker,
+    pnlTracker,
+  });
 
   logger.info({ count: universe.length }, "[startup] service initialized");
-  return { universe, candleStore, positionTracker, pnlTracker };
+  return { universe, candleStore, positionTracker, pnlTracker, exitManager };
 }

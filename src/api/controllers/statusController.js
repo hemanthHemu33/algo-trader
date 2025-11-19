@@ -2,6 +2,7 @@
 import { getRuntimeState } from "../../bootstrap/state.js";
 import { getISTClock, getISTDateKey } from "../../utils/istTime.js";
 import { getAuthHealth } from "../../data/kiteSession.js";
+import { fetchBrokerOrderStates } from "../../execution/reconcileBrokerState.js";
 
 export function getHealth(req, res) {
   const runtime = getRuntimeState();
@@ -34,4 +35,13 @@ export function getAuthHealthStatus(req, res) {
     reason: health?.reason,
     profile: health?.profile,
   });
+}
+
+export async function getBrokerOrders(req, res) {
+  try {
+    const orders = await fetchBrokerOrderStates();
+    res.json({ ok: true, orders });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
 }

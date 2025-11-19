@@ -1,7 +1,8 @@
 // src/api/controllers/tradeController.js
 import { getRuntimeState } from "../../bootstrap/state.js";
+import { flattenAllPositions } from "../../execution/orderExecutor.js";
 
-export function forceCloseAll(req, res) {
+export async function forceCloseAll(req, res) {
   const runtime = getRuntimeState();
   if (!runtime) {
     return res.status(500).json({
@@ -10,7 +11,11 @@ export function forceCloseAll(req, res) {
     });
   }
 
-  runtime.exitManager.closeAllPositions("MANUAL_FORCE_CLOSE");
+  if (runtime.exitManager?.closeAllPositions) {
+    await runtime.exitManager.closeAllPositions("MANUAL_FORCE_CLOSE");
+  } else {
+    await flattenAllPositions(runtime.positionTracker, "MANUAL_FORCE_CLOSE");
+  }
 
   res.json({
     ok: true,
