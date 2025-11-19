@@ -44,6 +44,7 @@ export async function getZerodhaAuth({ forceRefresh = false } = {}) {
   _cachedAuth = {
     apiKey: latest?.api_key || ENV.ZERODHA_API_KEY || null,
     accessToken: latest?.access_token || null,
+    refreshToken: latest?.refresh_token || null,
     encToken: latest?.enctoken || null,
     publicToken: latest?.public_token || null,
     userId: latest?.user_id || null,
@@ -57,6 +58,44 @@ export async function getZerodhaAuth({ forceRefresh = false } = {}) {
       hasApiKey: !!_cachedAuth.apiKey,
     },
     "[brokerToken] Loaded Zerodha auth from Mongo"
+  );
+
+  return _cachedAuth;
+}
+
+export async function saveZerodhaAuth(session) {
+  const db = getDb();
+
+  const doc = {
+    type: "kite_session",
+    api_key: session.api_key || session.apiKey || ENV.ZERODHA_API_KEY || null,
+    access_token: session.access_token || session.accessToken || null,
+    refresh_token: session.refresh_token || session.refreshToken || null,
+    enctoken: session.enctoken || session.encToken || null,
+    public_token: session.public_token || session.publicToken || null,
+    user_id: session.user_id || session.userId || null,
+    login_time: session.login_time
+      ? new Date(session.login_time)
+      : new Date(),
+    updated_at: new Date(),
+    meta: session.meta || session.data || undefined,
+  };
+
+  await db.collection("tokens").insertOne(doc);
+
+  _cachedAuth = {
+    apiKey: doc.api_key,
+    accessToken: doc.access_token,
+    refreshToken: doc.refresh_token,
+    encToken: doc.enctoken,
+    publicToken: doc.public_token,
+    userId: doc.user_id,
+    loginTime: doc.login_time,
+  };
+
+  logger.info(
+    { user: _cachedAuth.userId },
+    "[brokerToken] Persisted Zerodha session to Mongo"
   );
 
   return _cachedAuth;

@@ -1,35 +1,11 @@
 // src/exec/kiteREST.js
-import { KiteConnect } from "kiteconnect";
-import { getZerodhaAuth } from "../data/brokerToken.js";
+import { getKiteClient } from "../data/kiteREST.js";
 import { logger } from "../utils/logger.js";
-
-let _kc = null;
 
 function parseSymbol(exchangeSymbol) {
   // "NSE:TCS" -> { exchange: "NSE", tradingsymbol: "TCS" }
   const [exchange, tradingsymbol] = exchangeSymbol.split(":");
   return { exchange, tradingsymbol };
-}
-
-export async function initKiteREST() {
-  if (_kc) return _kc;
-
-  const auth = await getZerodhaAuth();
-  if (!auth.apiKey || !auth.accessToken) {
-    throw new Error(
-      "[kiteREST] missing apiKey/accessToken. Can't send live orders."
-    );
-  }
-
-  const kc = new KiteConnect({ api_key: auth.apiKey });
-  kc.setAccessToken(auth.accessToken);
-
-  _kc = kc;
-  logger.info(
-    { user: auth.userId },
-    "[kiteREST] KiteConnect REST client initialized"
-  );
-  return _kc;
 }
 
 /**
@@ -41,7 +17,7 @@ export async function initKiteREST() {
  * and in the JS SDK it's kc.placeOrder("regular", params). :contentReference[oaicite:9]{index=9}
  */
 export async function placeMISMarketOrder(symbol, qty, side) {
-  const kc = await initKiteREST();
+  const kc = await getKiteClient();
   const { exchange, tradingsymbol } = parseSymbol(symbol);
 
   const params = {

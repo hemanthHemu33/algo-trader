@@ -11,16 +11,27 @@ import { createPnlTracker } from "../journal/pnlTracker.js";
 import { hookPipeline } from "../pipeline/runPipeline.js";
 import { startMarketClock } from "../data/marketClock.js";
 import { logger } from "../utils/logger.js";
+import { ensureKiteSession, validateKiteSession } from "../data/kiteSession.js";
 
 export async function startup() {
   await connectDb();
 
   // Ensure Zerodha auth exists
   const auth = await getZerodhaAuth({ forceRefresh: true });
-  if (!auth.accessToken || !auth.apiKey) {
+  if (!auth.accessToken && !auth.encToken) {
     throw new Error(
       "[startup] No Zerodha auth in DB. Login to Kite and store token first."
     );
+  }
+
+  const validation = await validateKiteSession({ forceReload: true });
+  if (!validation.ok) {
+    logger.error({ reason: validation.reason }, "[startup] auth validation failed");
+    await ensureKiteSession({ forceRefresh: true });
+    const post = await validateKiteSession({ forceReload: true });
+    if (!post.ok) {
+      throw new Error(`[startup] Unable to validate Zerodha session: ${post.reason}`);
+    }
   }
 
   // Build today's universe FIRST (so 'universe' is defined)

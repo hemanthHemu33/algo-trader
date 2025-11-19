@@ -1,6 +1,6 @@
 // src/data/kiteStream.js
 import { KiteTicker } from "kiteconnect";
-import { getZerodhaAuth } from "./brokerToken.js";
+import { ensureKiteSession } from "./kiteSession.js";
 import { buildTokenMaps } from "./tokenMap.js";
 import { nowIST } from "../utils/istTime.js";
 import { logger } from "../utils/logger.js";
@@ -11,7 +11,7 @@ export async function startTickStream({
   positionTracker,
   pnlTracker,
 }) {
-  const auth = await getZerodhaAuth();
+  const auth = await ensureKiteSession();
   if (!auth.apiKey || !auth.accessToken) {
     logger.error("[kiteStream] no apiKey/accessToken -> can't start live feed");
     return;

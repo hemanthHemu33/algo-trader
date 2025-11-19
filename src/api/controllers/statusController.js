@@ -1,6 +1,7 @@
 // src/api/controllers/statusController.js
 import { getRuntimeState } from "../../bootstrap/state.js";
 import { getISTClock, getISTDateKey } from "../../utils/istTime.js";
+import { getAuthHealth } from "../../data/kiteSession.js";
 
 export function getHealth(req, res) {
   const runtime = getRuntimeState();
@@ -21,5 +22,16 @@ export function getHealth(req, res) {
       ? runtime.positionTracker.getClosedTrades()
       : [],
     realizedPnL: runtime.pnlTracker.getRealizedPnL(),
+  });
+}
+
+export function getAuthHealthStatus(req, res) {
+  const health = getAuthHealth();
+  res.json({
+    ok: !!health?.ok,
+    checkedAt: health?.checkedAt,
+    method: health?.method,
+    reason: health?.reason,
+    profile: health?.profile,
   });
 }
