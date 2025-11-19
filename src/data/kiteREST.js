@@ -64,7 +64,9 @@ export async function placeMISBuy({ symbol, qty }) {
     validity: "DAY",
   };
 
-  const orderId = await kc.placeOrder("regular", orderParams);
+  const resp = await kc.placeOrder("regular", orderParams);
+  const orderId = resp?.order_id ?? resp;
+
   logger.info({ symbol, qty, orderId }, "[kiteREST] BUY order placed");
   return { orderId };
 }
@@ -84,7 +86,76 @@ export async function placeMISSell({ symbol, qty }) {
     validity: "DAY",
   };
 
-  const orderId = await kc.placeOrder("regular", orderParams);
+  const resp = await kc.placeOrder("regular", orderParams);
+  const orderId = resp?.order_id ?? resp;
+
   logger.info({ symbol, qty, orderId }, "[kiteREST] SELL order placed");
   return { orderId };
+}
+
+export async function placeMISStopLossSell({ symbol, qty, triggerPrice }) {
+  const kc = await getKiteClient();
+  const [exchange, tradingsymbol] = symbol.split(":");
+
+  const orderParams = {
+    exchange,
+    tradingsymbol,
+    transaction_type: "SELL",
+    order_type: "SL-M",
+    product: "MIS",
+    quantity: qty,
+    trigger_price: triggerPrice,
+    validity: "DAY",
+  };
+
+  const resp = await kc.placeOrder("regular", orderParams);
+  const orderId = resp?.order_id ?? resp;
+  logger.info({ symbol, qty, orderId, triggerPrice }, "[kiteREST] SL-M placed");
+  return { orderId };
+}
+
+export async function placeMISTargetSell({ symbol, qty, price }) {
+  const kc = await getKiteClient();
+  const [exchange, tradingsymbol] = symbol.split(":");
+
+  const orderParams = {
+    exchange,
+    tradingsymbol,
+    transaction_type: "SELL",
+    order_type: "LIMIT",
+    product: "MIS",
+    quantity: qty,
+    price,
+    validity: "DAY",
+  };
+
+  const resp = await kc.placeOrder("regular", orderParams);
+  const orderId = resp?.order_id ?? resp;
+  logger.info({ symbol, qty, orderId, price }, "[kiteREST] target LIMIT placed");
+  return { orderId };
+}
+
+export async function cancelRegularOrder(orderId) {
+  const kc = await getKiteClient();
+  await kc.cancelOrder("regular", orderId);
+  logger.info({ orderId }, "[kiteREST] cancelled order");
+}
+
+export async function fetchOrderHistory(orderId) {
+  const kc = await getKiteClient();
+  const history = await kc.getOrderHistory(orderId);
+  const latest = Array.isArray(history) && history.length
+    ? history[history.length - 1]
+    : null;
+  return { latest, history };
+}
+
+export async function fetchOrderTrades(orderId) {
+  const kc = await getKiteClient();
+  return kc.getOrderTrades(orderId);
+}
+
+export async function fetchOrders() {
+  const kc = await getKiteClient();
+  return kc.getOrders();
 }
