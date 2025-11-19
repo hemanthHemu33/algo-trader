@@ -5,6 +5,7 @@ import { setRuntimeState } from "./bootstrap/state.js";
 import { logger } from "./utils/logger.js";
 
 (async () => {
+  logger.info("[main] starting trader-core bootstrap sequence");
   const runtime = await startup(); // build universe, trackers, streams
   setRuntimeState(runtime); // save it globally for controllers/executor
 
