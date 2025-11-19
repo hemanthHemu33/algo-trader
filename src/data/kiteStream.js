@@ -11,6 +11,10 @@ export async function startTickStream({
   positionTracker,
   pnlTracker,
 }) {
+  logger.info(
+    { symbols: universe.map((s) => s.symbol || s) },
+    "[kiteStream] initializing live tick stream"
+  );
   const auth = await ensureKiteSession();
   if (!auth.apiKey || !auth.accessToken) {
     logger.error("[kiteStream] no apiKey/accessToken -> can't start live feed");
@@ -18,6 +22,7 @@ export async function startTickStream({
   }
 
   // Build symbol <-> token maps from DB
+  logger.info("[kiteStream] building token maps for universe");
   const { symbolToToken, tokenToSymbol } = await buildTokenMaps(universe);
   const tokens = Object.values(symbolToToken)
     .map((t) => Number(t))
@@ -35,6 +40,11 @@ export async function startTickStream({
     api_key: auth.apiKey,
     access_token: auth.accessToken,
   });
+
+  logger.info(
+    { tokenCount: tokens.length },
+    "[kiteStream] ticker client created with credentials"
+  );
 
   // Per-token rolling candle bucket
   // buckets[token] = {
@@ -58,6 +68,16 @@ export async function startTickStream({
       close: b.close,
       volume: b.volumeDelta,
     });
+
+    logger.debug(
+      {
+        symbol,
+        minute: new Date(b.minuteKey).toISOString(),
+        ohlc: { o: b.open, h: b.high, l: b.low, c: b.close },
+        volumeDelta: b.volumeDelta,
+      },
+      "[kiteStream] finalized minute candle"
+    );
   }
 
   ticker.on("ticks", (ticks) => {
@@ -93,6 +113,16 @@ export async function startTickStream({
           volumeDelta: 0,
         };
         buckets[token] = b;
+
+        logger.debug(
+          {
+            symbol,
+            minute: new Date(minuteKey).toISOString(),
+            ltp,
+            totalVol,
+          },
+          "[kiteStream] started new candle bucket"
+        );
       }
 
       // update ongoing bucket
@@ -105,6 +135,11 @@ export async function startTickStream({
         b.volumeDelta += totalVol - b.lastVolume;
       }
       b.lastVolume = totalVol;
+
+      logger.trace(
+        { symbol, ltp, totalVol, minuteKey },
+        "[kiteStream] processed live tick"
+      );
     }
   });
 

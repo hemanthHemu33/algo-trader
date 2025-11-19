@@ -51,6 +51,10 @@ async function validateWithEnctoken(auth) {
 }
 
 export async function validateKiteSession({ forceReload = false } = {}) {
+  logger.info(
+    { forceReload },
+    "[kiteSession] validating Zerodha session credentials"
+  );
   const auth = await getZerodhaAuth({ forceRefresh: forceReload });
   if (!auth.apiKey || (!auth.accessToken && !auth.encToken)) {
     updateHealth({ ok: false, reason: "missing_credentials" });
@@ -58,6 +62,7 @@ export async function validateKiteSession({ forceReload = false } = {}) {
   }
 
   try {
+    logger.debug({ hasAccessToken: !!auth.accessToken }, "[kiteSession] attempting access token validation");
     const profile = await validateWithAccessToken(auth);
     if (profile) {
       updateHealth({ ok: true, method: "access_token", profile });
@@ -70,6 +75,7 @@ export async function validateKiteSession({ forceReload = false } = {}) {
   }
 
   try {
+    logger.debug({ hasEnctoken: !!auth.encToken }, "[kiteSession] attempting enctoken validation");
     const profile = await validateWithEnctoken(auth);
     if (profile) {
       updateHealth({ ok: true, method: "enctoken", profile });
@@ -152,15 +158,28 @@ export async function refreshKiteSession() {
 }
 
 export async function ensureKiteSession({ forceRefresh = false } = {}) {
+  logger.info({ forceRefresh }, "[kiteSession] ensuring active session");
   const validation = await validateKiteSession({ forceReload: forceRefresh });
   if (validation.ok) {
+    logger.info(
+      { method: getAuthHealth().method },
+      "[kiteSession] existing session validated"
+    );
     return validation.auth;
   }
 
   if (validation.expired || forceRefresh) {
+    logger.warn(
+      { reason: validation.reason, expired: validation.expired },
+      "[kiteSession] session invalid, attempting refresh"
+    );
     const refreshed = await refreshKiteSession();
     const postValidation = await validateKiteSession({ forceReload: true });
     if (postValidation.ok) {
+      logger.info(
+        { method: getAuthHealth().method },
+        "[kiteSession] session refreshed and validated"
+      );
       return refreshed;
     }
   }
