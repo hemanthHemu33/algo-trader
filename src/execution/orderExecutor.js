@@ -15,12 +15,25 @@ import { estimateEntryRequirement } from "../risk/tradeCosting.js";
  * - send MIS market BUY
  * - returns brokerOrderId + what we think is entry
  */
-export async function placeLongTrade({
+export async function placeLongTrade(params) {
+  return placeDirectionalTrade({ ...params, side: "LONG" });
+}
+
+/**
+ * placeShortTrade()
+ * - send MIS market SELL (short) with protective BUY exits
+ */
+export async function placeShortTrade(params) {
+  return placeDirectionalTrade({ ...params, side: "SHORT" });
+}
+
+async function placeDirectionalTrade({
   symbol,
   qty,
   entry,
   stopLoss,
   target,
+  side = "LONG",
 }) {
   const margin = await getSpendableMargin();
   if (!margin.ok) {
@@ -48,11 +61,14 @@ export async function placeLongTrade({
     return { status: "FAILED", brokerOrderId: null, reason: "insufficient_margin" };
   }
 
-  const { orderId } = await placeMISBuy({ symbol, qty });
+  const isShort = side === "SHORT";
+  const { orderId } = isShort
+    ? await placeMISSell({ symbol, qty })
+    : await placeMISBuy({ symbol, qty });
 
   logger.info(
-    { symbol, qty, orderId, entry, stopLoss, target },
-    "[orderExecutor] LONG entry sent"
+    { symbol, qty, orderId, entry, stopLoss, target, side },
+    "[orderExecutor] entry sent"
   );
 
   const fill = await pollOrderUntilTerminal({
@@ -71,6 +87,7 @@ export async function placeLongTrade({
         symbol,
         qty: fill.filledQty,
         reason: "partial_entry_reversal",
+        side,
       });
     }
 
@@ -86,6 +103,7 @@ export async function placeLongTrade({
       symbol,
       qty: fill.filledQty,
       reason: "partial_entry_reversal",
+      side,
     });
     return { status: "FAILED", brokerOrderId: orderId };
   }
@@ -95,6 +113,7 @@ export async function placeLongTrade({
     qty,
     stopLoss,
     target,
+    side,
   });
 
   const avgPrice = fill.avgPrice ?? entry;
@@ -104,6 +123,7 @@ export async function placeLongTrade({
     brokerOrderId: orderId,
     avgPrice,
     filledQty: fill.filledQty,
+    side,
     protectiveOrders,
   };
 }
@@ -112,8 +132,11 @@ export async function placeLongTrade({
  * exitPositionMarket()
  * - sends SELL MIS MARKET for qty
  */
-export async function exitPositionMarket({ symbol, qty, reason }) {
-  const { orderId } = await placeMISSell({ symbol, qty });
+export async function exitPositionMarket({ symbol, qty, reason, side = "LONG" }) {
+  const isShort = side === "SHORT";
+  const { orderId } = isShort
+    ? await placeMISBuy({ symbol, qty })
+    : await placeMISSell({ symbol, qty });
 
   logger.info({ symbol, qty, orderId, reason }, "[orderExecutor] EXIT sent");
 
@@ -128,9 +151,10 @@ export async function closePositionWithMarket({
   symbol,
   qty,
   reason,
+  side = "LONG",
   positionTracker,
 }) {
-  const { orderId } = await exitPositionMarket({ symbol, qty, reason });
+  const { orderId } = await exitPositionMarket({ symbol, qty, reason, side });
   const fill = await pollOrderUntilTerminal({ orderId, label: `exit:${symbol}` });
   const pos = positionTracker.getPosition(symbol);
   if (pos) {
@@ -158,15 +182,16 @@ export async function flattenAllPositions(positionTracker, reason = "force_exit"
     await closePositionWithMarket({
       symbol: pos.symbol,
       qty: pos.qty,
+      side: pos.side,
       reason,
       positionTracker,
     });
   }
 }
 
-async function flattenResidualExposure({ symbol, qty, reason }) {
+async function flattenResidualExposure({ symbol, qty, reason, side = "LONG" }) {
   if (!qty) return;
-  const { orderId } = await exitPositionMarket({ symbol, qty, reason });
+  const { orderId } = await exitPositionMarket({ symbol, qty, reason, side });
   await pollOrderUntilTerminal({ orderId, label: `flatten:${symbol}` });
   logger.warn({ symbol, qty }, "[orderExecutor] residual exposure flattened");
 }

@@ -2,7 +2,7 @@
 import { riskConfig } from "../config/riskConfig.js";
 
 export function createPositionTracker({ pnlTracker }) {
-  const _positions = {}; // symbol -> { qty, entry, stopLoss, target, status, protectiveOrders }
+  const _positions = {}; // symbol -> { qty, entry, stopLoss, target, status, protectiveOrders, side }
   const _closedTrades = [];
 
   function getOpenPositions() {
@@ -24,6 +24,7 @@ export function createPositionTracker({ pnlTracker }) {
     target,
     brokerOrderId,
     protectiveOrders,
+    side = "LONG",
   }) {
     _positions[symbol] = {
       qty,
@@ -32,6 +33,7 @@ export function createPositionTracker({ pnlTracker }) {
       target,
       brokerOrderId,
       protectiveOrders,
+      side,
       status: "OPEN",
       openedAt: Date.now(),
     };
@@ -42,7 +44,8 @@ export function createPositionTracker({ pnlTracker }) {
     if (!pos) return;
 
     const exitQty = meta.exitQty ?? pos.qty;
-    const pnlPerShare = exitPrice - pos.entry;
+    const isShort = pos.side === "SHORT";
+    const pnlPerShare = isShort ? pos.entry - exitPrice : exitPrice - pos.entry;
     const gross = pnlPerShare * exitQty;
 
     const closed = {
@@ -52,6 +55,7 @@ export function createPositionTracker({ pnlTracker }) {
       qty: exitQty,
       reason,
       brokerOrderId: pos.brokerOrderId,
+      side: pos.side,
       protectiveOrders: pos.protectiveOrders,
       exitOrderId: meta.exitOrderId,
       openedAt: pos.openedAt,

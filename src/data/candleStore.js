@@ -12,7 +12,9 @@ import { logger } from "../utils/logger.js";
  * }
  */
 
-export function createCandleStore(symbolList) {
+export function createCandleStore(symbolList, options = {}) {
+  const { maxCandles = 500 } = options;
+
   const _candles = {}; // { [symbol]: [candle, candle, ...] }
   const _subs = [];
 
@@ -28,6 +30,11 @@ export function createCandleStore(symbolList) {
   function addClosedCandle(symbol, candle) {
     if (!_candles[symbol]) _candles[symbol] = [];
     _candles[symbol].push(candle);
+
+    // Trim to maxCandles to avoid unbounded memory usage in scalping mode
+    if (_candles[symbol].length > maxCandles) {
+      _candles[symbol].splice(0, _candles[symbol].length - maxCandles);
+    }
 
     // notify pipeline
     for (const fn of _subs) {
@@ -53,10 +60,16 @@ export function createCandleStore(symbolList) {
     _subs.push(cb);
   }
 
+  function getLastCandle(symbol) {
+    const arr = _candles[symbol] || [];
+    return arr[arr.length - 1] || null;
+  }
+
   return {
     addHistoricalCandles,
     addClosedCandle,
     getRecentCandles,
     onCandleClose,
+    getLastCandle,
   };
 }
