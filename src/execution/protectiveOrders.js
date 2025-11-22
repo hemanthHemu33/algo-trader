@@ -3,14 +3,27 @@ import {
   cancelRegularOrder,
   placeMISTargetSell,
   placeMISStopLossSell,
+  placeMISStopLossBuy,
+  placeMISTargetBuy,
 } from "../data/kiteREST.js";
 import { logger } from "../utils/logger.js";
 import { pollOrderUntilTerminal } from "./orderPolling.js";
 
-export async function placeProtectiveBracket({ symbol, qty, stopLoss, target }) {
+export async function placeProtectiveBracket({
+  symbol,
+  qty,
+  stopLoss,
+  target,
+  side = "LONG",
+}) {
+  const isShort = side === "SHORT";
   const [stopLossOrder, targetOrder] = await Promise.all([
-    placeMISStopLossSell({ symbol, qty, triggerPrice: stopLoss }),
-    placeMISTargetSell({ symbol, qty, price: target }),
+    isShort
+      ? placeMISStopLossBuy({ symbol, qty, triggerPrice: stopLoss })
+      : placeMISStopLossSell({ symbol, qty, triggerPrice: stopLoss }),
+    isShort
+      ? placeMISTargetBuy({ symbol, qty, price: target })
+      : placeMISTargetSell({ symbol, qty, price: target }),
   ]);
 
   return {

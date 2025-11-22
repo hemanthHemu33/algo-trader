@@ -143,6 +143,48 @@ export async function placeMISTargetSell({ symbol, qty, price }) {
   return { orderId };
 }
 
+export async function placeMISStopLossBuy({ symbol, qty, triggerPrice }) {
+  const kc = await getKiteClient();
+  const [exchange, tradingsymbol] = symbol.split(":");
+
+  const orderParams = {
+    exchange,
+    tradingsymbol,
+    transaction_type: "BUY",
+    order_type: "SL-M",
+    product: "MIS",
+    quantity: qty,
+    trigger_price: triggerPrice,
+    validity: "DAY",
+  };
+
+  const resp = await kc.placeOrder("regular", orderParams);
+  const orderId = resp?.order_id ?? resp;
+  logger.info({ symbol, qty, orderId, triggerPrice }, "[kiteREST] SL-M BUY placed");
+  return { orderId };
+}
+
+export async function placeMISTargetBuy({ symbol, qty, price }) {
+  const kc = await getKiteClient();
+  const [exchange, tradingsymbol] = symbol.split(":");
+
+  const orderParams = {
+    exchange,
+    tradingsymbol,
+    transaction_type: "BUY",
+    order_type: "LIMIT",
+    product: "MIS",
+    quantity: qty,
+    price,
+    validity: "DAY",
+  };
+
+  const resp = await kc.placeOrder("regular", orderParams);
+  const orderId = resp?.order_id ?? resp;
+  logger.info({ symbol, qty, orderId, price }, "[kiteREST] target BUY LIMIT placed");
+  return { orderId };
+}
+
 export async function cancelRegularOrder(orderId) {
   const kc = await getKiteClient();
   await kc.cancelOrder("regular", orderId);

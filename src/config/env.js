@@ -14,6 +14,18 @@ function requireEnv(name, fallback = undefined) {
 export const ENV = {
   NODE_ENV: process.env.NODE_ENV || "development",
 
+  TRADING_MODE: process.env.TRADING_MODE || "INTRADAY", // INTRADAY | SCALPING
+  SIMULATION_MODE:
+    process.env.MODE === "SIMULATION" || process.env.SIMULATION_MODE === "true",
+
+  SCALPING_EXECUTION_URL:
+    process.env.SCALPING_EXECUTION_URL || "http://localhost:8081",
+  SCALPING_SIGNAL_API_KEY: process.env.SCALPING_SIGNAL_API_KEY || null,
+  SCALPING_INSTRUMENTS: (process.env.SCALPING_INSTRUMENTS || "NFO:NIFTY24APR17600CE")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+
   // we always connect to the same Mongo cluster as scanner_app
   // example:
   //   MONGO_URI=mongodb+srv://user:pass@cluster0.../scanner_app

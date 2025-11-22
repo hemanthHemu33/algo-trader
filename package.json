@@ -5,6 +5,8 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
+    "start": "node src/main.js",
+    "start:scalping": "node src/scalping/main.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",

@@ -10,12 +10,16 @@ export function createExitManager({ positionTracker }) {
 
     const ltp = lastCandle.close;
 
+    const isShort = pos.side === "SHORT";
+
     // target hit?
-    if (ltp >= pos.target) {
+    const targetHit = isShort ? ltp <= pos.target : ltp >= pos.target;
+    if (targetHit) {
       await closePositionWithMarket({
         symbol,
         qty: pos.qty,
         reason: "target_hit",
+        side: pos.side,
         positionTracker,
       });
 
@@ -24,11 +28,13 @@ export function createExitManager({ positionTracker }) {
     }
 
     // stoploss hit?
-    if (ltp <= pos.stopLoss) {
+    const stopHit = isShort ? ltp >= pos.stopLoss : ltp <= pos.stopLoss;
+    if (stopHit) {
       await closePositionWithMarket({
         symbol,
         qty: pos.qty,
         reason: "stoploss_hit",
+        side: pos.side,
         positionTracker,
       });
 
@@ -42,6 +48,7 @@ export function createExitManager({ positionTracker }) {
       await closePositionWithMarket({
         symbol: pos.symbol,
         qty: pos.qty,
+        side: pos.side,
         reason,
         positionTracker,
       });

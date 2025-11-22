@@ -20,7 +20,10 @@ export async function evaluateTradeRisk({
   }
 
   // RR check
-  const rr = (setup.target - setup.entry) / (setup.entry - setup.stopLoss);
+  const reward = Math.abs(setup.target - setup.entry);
+  const risk = Math.abs(setup.entry - setup.stopLoss);
+  const rr = risk > 0 ? reward / risk : 0;
+
   if (rr < riskConfig.MIN_RR) {
     return { ok: false, reason: "rr_below_min" };
   }

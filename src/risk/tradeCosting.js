@@ -3,7 +3,7 @@ import { riskConfig } from "../config/riskConfig.js";
 import { resolveTradeConstraints } from "../config/tradingRules.js";
 
 export function computeVariableRiskPerUnit({ entry, stopLoss }) {
-  const stopDist = entry - stopLoss;
+  const stopDist = Math.abs(entry - stopLoss);
   const slippageRisk =
     entry * riskConfig.ENTRY_SLIPPAGE_PCT +
     stopLoss * riskConfig.EXIT_SLIPPAGE_PCT;
