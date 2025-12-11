@@ -1,85 +1,95 @@
 // src/scalping/runtime/startScalpingTrader.js
-import { connectDb } from "../../data/db.js";
+import { APP_CONFIG } from "../../config/appConfig.js";
 import { ensureKiteSession, validateKiteSession } from "../../data/kiteSession.js";
-import { startTickStream } from "../../data/kiteStream.js";
+import { getRecentCandles, watchScalpingSignals } from "../../data/mongoDataFeed.js";
+import { getDb } from "../../data/mongoConnection.js";
+import { ExecutionEngine } from "../../execution/ExecutionEngine.js";
+import { PositionManager } from "../../positions/PositionManager.js";
+import { RiskEngine } from "../../risk/RiskEngine.js";
+import { ScalpingEngine } from "../../strategy/scalping/ScalpingEngine.js";
 import { logger } from "../../utils/logger.js";
-import { SCALPING_CONFIG } from "../config/scalpingConfig.js";
-import { createScalpingCandleHub } from "../data/candleHub.js";
-import { attachScalpingPipeline } from "./attachScalpingPipeline.js";
-import { createScalpingSignalExecutor } from "../execution/scalpingSignalExecutor.js";
-import { loadTodayUniverse } from "../../universe/loadTodayUniverse.js";
-import { validateUniverse } from "../../universe/validateUniverse.js";
-import { createPnlTracker } from "../../journal/pnlTracker.js";
-import { createPositionTracker } from "../../execution/positionTracker.js";
-import { createExitManager } from "../../execution/exitManager.js";
-import { startApiServer } from "../../api/server.js";
-import { setRuntimeState } from "../../bootstrap/state.js";
 
-/**
- * Bootstraps a full scalping algo: pulls universe from DB, builds candle hub,
- * runs ScalpEngine, gates signals through risk, and executes orders directly.
- */
-export async function startScalpingTrader(customConfig = {}) {
-  const config = {
-    ...SCALPING_CONFIG,
-    ...customConfig,
-    enabled: true,
-    mode: "SCALPING",
-  };
+export async function startScalpingTrader() {
+  logger.info("[scalping] booting scalping trader with Mongo-backed data feed");
+  await getDb();
 
-  await connectDb();
   await ensureKiteSession({ forceRefresh: true });
   const validation = await validateKiteSession({ forceReload: true });
   if (!validation.ok) {
     throw new Error(`[scalping] unable to validate Kite session: ${validation.reason}`);
   }
 
-  const dbUniverse = validateUniverse(await loadTodayUniverse());
-  const activeUniverse = dbUniverse.length ? dbUniverse : validateUniverse(config.universe);
+  const positionManager = new PositionManager();
+  await positionManager.syncFromDb();
+  const scalpingEngine = new ScalpingEngine({ config: APP_CONFIG });
+  const riskEngine = new RiskEngine({ config: APP_CONFIG });
+  const executionEngine = new ExecutionEngine();
 
-  logger.info(
-    { universe: activeUniverse },
-    "[scalping] starting scalping trader with DB-driven universe"
-  );
-
-  const candleHub = createScalpingCandleHub({
-    universe: activeUniverse,
-    maxCandles: config.maxCandles,
+  await watchScalpingSignals({
+    onSignal: async (signal) => {
+      await handleSignal({ signal, scalpingEngine, riskEngine, executionEngine, positionManager });
+    },
   });
 
-  const pnlTracker = createPnlTracker();
-  const positionTracker = createPositionTracker({ pnlTracker });
-  const exitManager = createExitManager({ positionTracker });
+  logger.info("[scalping] watching for scalping signals from MongoDB");
+  return { positionManager, scalpingEngine, riskEngine, executionEngine };
+}
 
-  const signalExecutor = createScalpingSignalExecutor({
-    positionTracker,
-    pnlTracker,
-    config,
+async function handleSignal({ signal, scalpingEngine, riskEngine, executionEngine, positionManager }) {
+  logger.info({ signalId: signal._id, symbol: signal.symbol }, "[scalping] processing signal");
+  const candles = await getRecentCandles(signal.symbol, { limit: 50 });
+  const decision = scalpingEngine.evaluate({ signal, candles });
+  if (!decision) {
+    await markSignal(signal, "REJECTED_STRATEGY");
+    return;
+  }
+
+  const riskDecision = riskEngine.evaluate(decision, {
+    openPositions: positionManager.getOpenPositions(),
+    pnlSnapshot: positionManager.getPnlSnapshot(),
   });
 
-  attachScalpingPipeline({
-    candleHub,
-    config: { ...config, universe: activeUniverse },
-    onSignal: signalExecutor.handle,
-  });
+  if (!riskDecision.allowed) {
+    logger.warn({ reasonCodes: riskDecision.reasonCodes }, "[scalping] risk rejected trade");
+    await markSignal(signal, "REJECTED_RISK");
+    return;
+  }
 
-  await startTickStream({
-    universe: activeUniverse,
-    candleStore: candleHub.raw,
-    positionTracker,
-    pnlTracker,
-  });
+  const orderRequest = {
+    symbol: decision.symbol,
+    direction: decision.direction,
+    quantity: riskDecision.quantity,
+    orderType: "MARKET",
+    product: "MIS",
+    strategyId: "SCALPING_V1",
+    entryPrice: decision.intendedEntry,
+    stopLoss: decision.stopLoss,
+    targetPrice: decision.target,
+    meta: { reasonCodes: decision.reasonCodes, sourceSignalId: decision.meta?.sourceSignalId },
+  };
 
-  setRuntimeState({
-    universe: activeUniverse,
-    candleStore: candleHub.raw,
-    positionTracker,
-    pnlTracker,
-    exitManager,
-  });
+  const result = await executionEngine.place(orderRequest);
+  if (result.ok) {
+    logger.info({ orderId: result.orderId }, "[scalping] order placed");
+    await positionManager.recordOpenPosition({
+      symbol: decision.symbol,
+      direction: decision.direction,
+      quantity: riskDecision.quantity,
+      entryPrice: decision.intendedEntry,
+      stopLoss: decision.stopLoss,
+      target: decision.target,
+      openedAt: new Date(),
+      meta: decision.meta,
+    });
+    await markSignal(signal, "EXECUTED");
+  } else {
+    logger.error({ error: result.error }, "[scalping] failed to place order");
+    await markSignal(signal, "EXECUTION_FAILED");
+  }
+}
 
-  startApiServer();
-
-  logger.info("[scalping] scalping trader online and executing automatically");
-  return { candleHub, config, positionTracker, pnlTracker };
+async function markSignal(signal, status) {
+  const db = await getDb();
+  const col = db.collection(APP_CONFIG.collections.signals);
+  await col.updateOne({ _id: signal._id }, { $set: { status, updatedAt: new Date() } });
 }
