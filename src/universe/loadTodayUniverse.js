@@ -1,5 +1,5 @@
 // src/universe/loadTodayUniverse.js
-import { getDb } from "../data/db.js";
+import { getDb } from "../data/mongoConnection.js";
 import { logger } from "../utils/logger.js";
 
 /**
