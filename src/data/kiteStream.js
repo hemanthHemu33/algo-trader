@@ -89,7 +89,10 @@ export async function startTickStream({
       if (!symbol) continue;
 
       const ltp = t.last_price; // last traded price
-      const totalVol = t.volume || 0; // Zerodha tick has total traded volume so far today. :contentReference[oaicite:7]{index=7}
+      // Zerodha tick has total traded volume so far today. Some feeds miss it, so
+      // fall back to last traded quantity to keep volumeDelta non-zero.
+      const totalVol = Number(t.volume) || 0;
+      const lastQty = Number(t.last_quantity || t.last_traded_quantity) || 0;
 
       // minuteKey = this minute rounded down
       const minute = new Date(now);
@@ -130,11 +133,16 @@ export async function startTickStream({
       if (ltp > b.high) b.high = ltp;
       if (ltp < b.low) b.low = ltp;
 
-      // volumeDelta = today's cumulative volume diff
-      if (totalVol > b.lastVolume) {
-        b.volumeDelta += totalVol - b.lastVolume;
+      // volumeDelta = today's cumulative volume diff. If cumulative volume is
+      // missing, use the last traded quantity as a best-effort fallback.
+      if (totalVol > 0) {
+        if (totalVol > b.lastVolume) {
+          b.volumeDelta += totalVol - b.lastVolume;
+        }
+        b.lastVolume = totalVol;
+      } else if (lastQty > 0) {
+        b.volumeDelta += lastQty;
       }
-      b.lastVolume = totalVol;
 
       logger.trace(
         { symbol, ltp, totalVol, minuteKey },
