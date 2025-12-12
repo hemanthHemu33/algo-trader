@@ -28,14 +28,12 @@ function num(name, def) {
 }
 
 const defaultMongoUri = "mongodb://127.0.0.1:27017/scanner_app";
-const defaultMongoDb = "scanner_app";
 
 export const APP_CONFIG = {
   env: process.env.NODE_ENV || "development",
   mongo: {
     uri: str("MONGO_URI", defaultMongoUri),
-    // default to scanner_app DB so we pick up the scanner-app's Zerodha tokens
-    dbName: str("MONGO_DB", defaultMongoDb),
+    dbName: str("MONGO_DB", undefined),
   },
   zerodha: {
     apiKey: str("ZERODHA_API_KEY", null),

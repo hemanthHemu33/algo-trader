@@ -1,7 +1,6 @@
 // src/scalping/runtime/startScalpingTrader.js
 import { APP_CONFIG } from "../../config/appConfig.js";
 import { ensureKiteSession, validateKiteSession } from "../../data/kiteSession.js";
-import { getZerodhaAuth } from "../../data/brokerToken.js";
 import { getRecentCandles, watchScalpingSignals } from "../../data/mongoDataFeed.js";
 import { getDb } from "../../data/mongoConnection.js";
 import { ExecutionEngine } from "../../execution/ExecutionEngine.js";
@@ -13,15 +12,6 @@ import { logger } from "../../utils/logger.js";
 export async function startScalpingTrader() {
   logger.info("[scalping] booting scalping trader with Mongo-backed data feed");
   await getDb();
-
-  const auth = await getZerodhaAuth({ forceRefresh: true });
-  const hasSession = !!(auth.accessToken || auth.encToken);
-  if (!hasSession) {
-    logger.warn(
-      "[scalping] No Zerodha auth found in Mongo; scalping trader will not place orders until a session token is stored."
-    );
-    return { disabled: true };
-  }
 
   await ensureKiteSession({ forceRefresh: true });
   const validation = await validateKiteSession({ forceReload: true });

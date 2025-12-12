@@ -47,5 +47,5 @@ export async function startup() {
   logger.info(
     "[startup] startup complete (orders should be triggered by Mongo-driven scalping runtime)"
   );
-  return { universe, brokerAuthReady: hasSession };
+  return { universe };
 }
