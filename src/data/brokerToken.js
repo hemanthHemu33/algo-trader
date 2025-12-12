@@ -6,7 +6,7 @@ import { ENV } from "../config/env.js";
 let _cachedAuth = null;
 
 async function loadLatestTokenDoc() {
-  const db = getDb();
+  const db = await getDb();
 
   // We expect exactly one doc like the one you pasted:
   // {
@@ -64,7 +64,7 @@ export async function getZerodhaAuth({ forceRefresh = false } = {}) {
 }
 
 export async function saveZerodhaAuth(session) {
-  const db = getDb();
+  const db = await getDb();
 
   const doc = {
     type: "kite_session",

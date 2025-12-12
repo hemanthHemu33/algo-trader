@@ -13,7 +13,7 @@ import { logger } from "../utils/logger.js";
  * }
  */
 export async function loadTodayUniverse() {
-  const db = getDb();
+  const db = await getDb();
 
   // In your DB design you basically keep ONE doc.
   // We'll just grab any doc (or latest if there are many).
