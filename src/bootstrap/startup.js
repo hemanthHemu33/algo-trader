@@ -16,22 +16,23 @@ export async function startup() {
   // Ensure Zerodha auth exists
   logger.info("[startup] fetching Zerodha auth token");
   const auth = await getZerodhaAuth({ forceRefresh: true });
-  if (!auth.accessToken && !auth.encToken) {
-    throw new Error(
-      "[startup] No Zerodha auth in DB. Login to Kite and store token first."
-    );
-  }
-
-  logger.info("[startup] validating Zerodha session");
-  const validation = await validateKiteSession({ forceReload: true });
-  if (!validation.ok) {
-    logger.error({ reason: validation.reason }, "[startup] auth validation failed");
-    logger.info("[startup] attempting to refresh Zerodha session");
-    await ensureKiteSession({ forceRefresh: true });
-    const post = await validateKiteSession({ forceReload: true });
-    if (!post.ok) {
-      throw new Error(`[startup] Unable to validate Zerodha session: ${post.reason}`);
+  const hasSession = !!(auth.accessToken || auth.encToken);
+  if (hasSession) {
+    logger.info("[startup] validating Zerodha session");
+    const validation = await validateKiteSession({ forceReload: true });
+    if (!validation.ok) {
+      logger.error({ reason: validation.reason }, "[startup] auth validation failed");
+      logger.info("[startup] attempting to refresh Zerodha session");
+      await ensureKiteSession({ forceRefresh: true });
+      const post = await validateKiteSession({ forceReload: true });
+      if (!post.ok) {
+        throw new Error(`[startup] Unable to validate Zerodha session: ${post.reason}`);
+      }
     }
+  } else {
+    logger.warn(
+      "[startup] No Zerodha auth found. Trading actions will remain disabled until a session token is stored in Mongo."
+    );
   }
 
   // Build today's universe FIRST (so 'universe' is defined)
